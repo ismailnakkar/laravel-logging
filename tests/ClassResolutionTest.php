@@ -141,12 +141,4 @@ class ClassResolutionTest extends TestCase
 
         $this->assertCount(4, $this->reported);
     }
-
-    /** @param  class-string<Throwable>  $class */
-    private function reportTimes(string $class, int $times): void
-    {
-        foreach (range(1, $times) as $i) {
-            report(new $class("boom {$i}"));
-        }
-    }
 }

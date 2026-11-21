@@ -66,15 +66,4 @@ class BudgetTest extends TestCase
 
         $this->assertEquals(Budget::perHour(7), $restored['classes']['App\\Foo']);
     }
-
-    #[Test]
-    public function a_config_entry_fills_absent_keys_from_the_default(): void
-    {
-        $default = Budget::of(10, 300);
-
-        $this->assertEquals(Budget::of(3, 600), Budget::fromConfig(['limit' => 3, 'window' => 600], $default));
-        $this->assertEquals(Budget::of(3, 300), Budget::fromConfig(['limit' => 3], $default));
-        $this->assertEquals(Budget::of(10, 600), Budget::fromConfig(['window' => 600], $default));
-        $this->assertEquals($default, Budget::fromConfig([], $default));
-    }
 }

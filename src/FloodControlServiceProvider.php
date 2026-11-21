@@ -17,8 +17,13 @@ use Throwable;
 use WeakMap;
 
 /** @internal */
-class FloodControlServiceProvider extends ServiceProvider
+final class FloodControlServiceProvider extends ServiceProvider
 {
+    /** How many handlers unwrap() checks, the outermost included, before it gives up. */
+    private const MAX_HANDLER_DEPTH = 8;
+
+    private const BUDGET_KEYS = ['limit', 'window'];
+
     private bool $wrapsPulse = false;
 
     private bool $countersRunning = false;
@@ -34,8 +39,8 @@ class FloodControlServiceProvider extends ServiceProvider
 
         $this->app->singleton(ThrottleConfig::class);
 
-        // The binding must land before Pulse boots and resolves its recorders; registered later,
-        // Pulse keeps its stock one. No config check: `flood-control.pulse` is read per exception.
+        // Must land before Pulse boots and resolves its recorders, or Pulse keeps its stock one.
+        // No config check: `flood-control.pulse` is read per exception.
         $this->wrapsPulse = class_exists(PulseExceptions::class) && ! $this->app->isBooted();
 
         if ($this->wrapsPulse) {
@@ -56,44 +61,50 @@ class FloodControlServiceProvider extends ServiceProvider
             $this->registerAboutCommandIntegration();
         }
 
-        $this->validateClassBudgets();
-        $this->validateCounters();
+        // Skipped once cached: config:cache boots the app uncached, so the checks already ran there.
+        if (! $this->app->configurationIsCached()) {
+            $this->validateClassBudgets();
+            $this->validateCounters();
+        }
 
         if ($this->wrapsPulse) {
             $events->listen(ExceptionReported::class, PulseReportListener::class);
         }
 
         // An app's withExceptions() callbacks are added during bootstrap, so they run ahead of these.
-        $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $resolved): void {
-            $handler = self::unwrap($resolved);
-            $target = $handler ?? $resolved;
+        $this->callAfterResolving(ExceptionHandler::class, $this->wire(...));
+    }
 
-            // A decorated binding unwraps to the same handler; wiring it twice counts everything twice.
-            if (isset($this->wired[$target])) {
-                return;
-            }
+    private function wire(ExceptionHandler $resolved): void
+    {
+        $handler = self::unwrap($resolved);
+        $target = $handler ?? $resolved;
 
-            $this->wired[$target] = true;
+        // A decorated binding unwraps to the same handler; wiring it twice counts everything twice.
+        if (isset($this->wired[$target])) {
+            return;
+        }
 
-            if ($handler === null) {
-                $this->countPulseFromAReportable($resolved);
+        $this->wired[$target] = true;
 
-                return;
-            }
+        if ($handler === null) {
+            $this->countPulseFromAReportable($resolved);
 
-            // Counted on dontReportWhen(), ahead of the throttle chain: Handler::throttle() stops at
-            // the first non-null return, so an app's own throttle callback would starve counters
-            // there. These return null, which suppresses nothing.
-            if ($this->wrapsPulse) {
-                $handler->dontReportWhen(PulseExceptionRecorder::count(...));
-                $handler->reportable(PulseExceptionRecorder::countSurvivor(...));
-            }
+            return;
+        }
 
-            // Always: the list is read per exception, so counters configured later still run.
-            $handler->dontReportWhen($this->runCounters(...));
+        // Counted on dontReportWhen(), ahead of the throttle chain: Handler::throttle() stops at the
+        // first non-null return, so an app's own throttle callback would starve counters there.
+        // These return null, which suppresses nothing.
+        if ($this->wrapsPulse) {
+            $handler->dontReportWhen(PulseExceptionRecorder::count(...));
+            $handler->reportable(PulseExceptionRecorder::countSurvivor(...));
+        }
 
-            $handler->throttleUsing(ExceptionThrottle::for(...));
-        });
+        // Always: the list is read per exception, so counters configured later still run.
+        $handler->dontReportWhen($this->runCounters(...));
+
+        $handler->throttleUsing(ExceptionThrottle::for(...));
     }
 
     private function runCounters(Throwable $e): null
@@ -132,7 +143,7 @@ class FloodControlServiceProvider extends ServiceProvider
      */
     private static function unwrap(?object $handler): ?object
     {
-        for ($depth = 0; $depth < 8; $depth++) {
+        for ($depth = 0; $depth < self::MAX_HANDLER_DEPTH; $depth++) {
             if ($handler === null || method_exists($handler, 'throttleUsing')) {
                 return $handler;
             }
@@ -174,17 +185,13 @@ class FloodControlServiceProvider extends ServiceProvider
     }
 
     /**
-     * A typo'd class or key would otherwise fall back to the default budget silently. Skipped once
-     * cached: config:cache boots the app uncached, so it already ran there.
+     * A typo'd class or key would otherwise fall back to the default budget silently. Unshared: the
+     * singleton resolved at boot would keep the boot-time config past Octane's per-request copy.
      */
     private function validateClassBudgets(): void
     {
-        if ($this->app->configurationIsCached()) {
-            return;
-        }
-
-        foreach ((array)$this->app->make('config')->get('flood-control.classes', []) as $class => $budget) {
-            if (! is_string($class) || (! class_exists($class) && ! interface_exists($class))) {
+        foreach ((new ThrottleConfig($this->app->make('config')))->classes() as $class => $budget) {
+            if (! self::isClassOrInterface($class)) {
                 throw new InvalidArgumentException(
                     "flood-control.classes: [{$class}] is not a class or interface that exists.",
                 );
@@ -200,7 +207,7 @@ class FloodControlServiceProvider extends ServiceProvider
                 );
             }
 
-            foreach (['limit', 'window'] as $key) {
+            foreach (self::BUDGET_KEYS as $key) {
                 if (array_key_exists($key, $budget) && ! is_int($budget[$key])) {
                     throw new InvalidArgumentException(
                         "flood-control.classes.[{$class}]: '{$key}' must be an int.",
@@ -208,7 +215,7 @@ class FloodControlServiceProvider extends ServiceProvider
                 }
             }
 
-            if ($unknown = array_diff(array_keys($budget), ['limit', 'window'])) {
+            if ($unknown = array_diff(array_keys($budget), self::BUDGET_KEYS)) {
                 throw new InvalidArgumentException(
                     "flood-control.classes.[{$class}]: unknown key(s) " . implode(', ', $unknown) . '.',
                 );
@@ -219,35 +226,44 @@ class FloodControlServiceProvider extends ServiceProvider
     /** A typo'd counter would otherwise silently never run. */
     private function validateCounters(): void
     {
-        if ($this->app->configurationIsCached()) {
-            return;
-        }
-
         foreach ($this->counters() as $counter) {
-            $name = is_string($counter) ? $counter : get_debug_type($counter);
-
             // Interfaces too: a counter can be a contract the app binds.
-            if (! is_string($counter) || (! class_exists($counter) && ! interface_exists($counter))) {
+            if (! self::isClassOrInterface($counter)) {
+                $name = is_string($counter) ? $counter : get_debug_type($counter);
+
                 throw new InvalidArgumentException("flood-control.counters: [{$name}] is not a class or interface that exists.");
             }
 
             if (! method_exists($counter, '__invoke')) {
-                throw new InvalidArgumentException("flood-control.counters: [{$name}] has no __invoke(Throwable \$e).");
+                throw new InvalidArgumentException("flood-control.counters: [{$counter}] has no __invoke(Throwable \$e).");
             }
         }
     }
 
+    /** @phpstan-assert-if-true class-string $name */
+    private static function isClassOrInterface(mixed $name): bool
+    {
+        return is_string($name) && (class_exists($name) || interface_exists($name));
+    }
+
     private function registerAboutCommandIntegration(): void
     {
-        AboutCommand::add('Flood Control', fn (): array => [
-            'Exception budget' => sprintf(
-                '%d per %ds',
-                (int)config('flood-control.limit', ThrottleConfig::DEFAULT_LIMIT),
-                (int)config('flood-control.window', ThrottleConfig::DEFAULT_WINDOW),
-            ),
-            'Per class budgets' => (string)count((array)config('flood-control.classes', [])),
-            'Enabled'           => AboutCommand::format($this->app->make(ThrottleConfig::class)->enabled(), console: fn ($v) => $v ? '<fg=yellow;options=bold>ENABLED</>' : 'OFF'),
-            'Pulse counter'     => AboutCommand::format($this->wrapsPulse && PulseExceptionRecorder::countsInFront(), console: fn ($v) => $v ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF'),
-        ]);
+        AboutCommand::add('Flood Control', function (): array {
+            $config = $this->app->make(ThrottleConfig::class);
+            $budget = $config->default();
+
+            return [
+                'Exception budget'  => $budget->isUnlimited() ? 'unlimited' : sprintf('%d per %ds', $budget->times, $budget->seconds),
+                'Per class budgets' => (string)count($config->classes()),
+                'Enabled'           => AboutCommand::format(
+                    $config->enabled(),
+                    console: fn (bool $on): string => $on ? '<fg=yellow;options=bold>ENABLED</>' : 'OFF',
+                ),
+                'Pulse counter' => AboutCommand::format(
+                    $this->wrapsPulse && PulseExceptionRecorder::countsInFront(),
+                    console: fn (bool $on): string => $on ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF',
+                ),
+            ];
+        });
     }
 }

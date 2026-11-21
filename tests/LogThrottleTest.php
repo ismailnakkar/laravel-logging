@@ -8,7 +8,6 @@ use FloodControl\Budget;
 use FloodControl\LogThrottle;
 use FloodControl\Tests\Fixtures\Channel;
 use Illuminate\Cache\CacheManager;
-use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\NullHandler;
@@ -93,10 +92,25 @@ class LogThrottleTest extends TestCase
     {
         // A per-process gate would pass the other tests and still log once per worker.
         LogThrottle::once('shared', 60);
+        LogThrottle::times('shared', Budget::of(3, 60));
 
         $store = $this->app->make(CacheManager::class)->store(config('cache.limiter'));
 
-        $this->assertTrue($store->has('log-throttle:' . hash('xxh128', 'shared')));
+        $this->assertTrue($store->has('flood-control:once:0b4daf8ec10943ca139c28d628e8f62c'));
+        $this->assertSame(1, $store->get('flood-control:times:0b4daf8ec10943ca139c28d628e8f62c'));
+    }
+
+    #[Test]
+    public function once_and_times_on_the_same_key_keep_their_own_gates(): void
+    {
+        // Sharing a cache key, each read the other's entry as its own: times()' counter closed once()'s gate.
+        LogThrottle::times('both', Budget::of(2, 60))->info('times 1');
+        LogThrottle::once('both', 60)->info('once 1');
+        LogThrottle::times('both', Budget::of(2, 60))->info('times 2');
+        LogThrottle::once('both', 60)->info('once 2');
+        LogThrottle::times('both', Budget::of(2, 60))->info('times 3');
+
+        $this->assertSame(['info|times 1', 'info|once 1', 'info|times 2'], $this->written);
     }
 
     #[Test]
@@ -155,12 +169,7 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_cache_failure_logs_rather_than_throwing_for_times_too(): void
     {
-        $this->app->bind(RateLimiter::class, function (): RateLimiter {
-            $limiter = $this->createStub(RateLimiter::class);
-            $limiter->method('attempt')->willThrowException(new RuntimeException('redis is down'));
-
-            return $limiter;
-        });
+        $this->breakRateLimiter();
 
         LogThrottle::times('outage', Budget::of(1, 60))->error('one');
         LogThrottle::times('outage', Budget::of(1, 60))->error('two');

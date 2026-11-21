@@ -7,7 +7,6 @@ namespace FloodControl\Tests;
 use FloodControl\Budget;
 use FloodControl\FloodControlServiceProvider;
 use FloodControl\ThrottleConfig;
-use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -55,13 +54,19 @@ class DefaultsTest extends TestCase
     {
         config(['flood-control' => null]);
 
-        $this->withoutMockingConsoleOutput();
-        $this->artisan('about --only=flood_control');
-
-        $output = $this->app[Kernel::class]->output();
+        $output = $this->aboutOutput();
 
         $this->assertStringContainsString('10 per 300s', $output);
         $this->assertStringContainsString('ENABLED', $output);
+    }
+
+    #[Test]
+    public function artisan_about_calls_a_sub_one_budget_unlimited(): void
+    {
+        // An empty FLOOD_CONTROL_LIMIT reads as 0, which reports everything.
+        config(['flood-control.limit' => 0]);
+
+        $this->assertStringContainsString('unlimited', $this->aboutOutput());
     }
 
     #[Test]

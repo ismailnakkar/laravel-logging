@@ -45,8 +45,8 @@ final class ExceptionThrottle
             return;
         }
 
-        // Key-less, it would share the class bucket, whose window the first hit fixes. Cloned: by()
-        // mutates, and the caller may reuse the Limit. A falsy key is none, as the handler reads it.
+        // Key-less, it would share the class bucket and fix its window. Cloned: by() mutates, and the
+        // caller may reuse the Limit. A falsy key counts as none, as the handler reads it.
         self::overrides()[$e] = $limit->key
             ? $limit
             : (clone $limit)->by('flood-control:override:' . $e::class);
@@ -64,10 +64,12 @@ final class ExceptionThrottle
      */
     private static function takeOverride(Throwable $e): ?Limit
     {
+        $overrides = self::overrides();
+
         for ($current = $e; $current !== null; $current = $current->getPrevious()) {
-            if (isset(self::overrides()[$current])) {
-                $limit = self::overrides()[$current];
-                unset(self::overrides()[$current]);
+            if (isset($overrides[$current])) {
+                $limit = $overrides[$current];
+                unset($overrides[$current]);
 
                 return $limit;
             }

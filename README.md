@@ -1,7 +1,7 @@
 # laravel-flood-control
 
-Rate-limits reported exceptions and repeated log lines in Laravel, while Laravel Pulse and your own
-counters still see every reported exception.
+Rate-limits reported exceptions and repeated log lines in Laravel, so one failing dependency cannot
+flood Sentry, Slack or your logs. Laravel Pulse and your own counters still see every exception.
 
 ## Install
 
@@ -21,11 +21,11 @@ and server shares, such as Redis or the database, or each process or server thro
 | Key | Env | Default | Meaning |
 | --- | --- | --- | --- |
 | `enabled` | `FLOOD_CONTROL_ENABLED` | `true` | Exception throttling, per-call limits and the [channel tap](#per-channel) included. Counting and `LogThrottle::once()`/`times()` ignore it. |
+| `pulse` | `FLOOD_CONTROL_PULSE` | `true` | Pulse counts in front of the gate; `false` counts survivors only. |
+| `counters` | | `[]` | Your own counters, see [Counting](#counting). |
 | `limit` | `FLOOD_CONTROL_LIMIT` | `10` | Reports per exception class per window. |
 | `window` | `FLOOD_CONTROL_WINDOW` | `300` | Window in seconds. |
 | `classes` | | `[]` | Per-class budgets, below. |
-| `counters` | | `[]` | Your own counters, see [Counting](#counting). |
-| `pulse` | `FLOOD_CONTROL_PULSE` | `true` | Pulse counts in front of the gate; `false` counts survivors only. |
 
 Anywhere in this package, a limit or window below 1 means no limit, not never. To silence a class, use
 `$exceptions->dontReport()`.
@@ -54,10 +54,10 @@ Anywhere in this package, a limit or window below 1 means no limit, not never. T
 
 ## Exceptions
 
-`report($e)` and uncaught exceptions are throttled per class with no change at the call site. The
-gate runs in `shouldntReport()`, ahead of the log write and every `reportable` (Sentry, Flare, …). It
-fails open: while the `cache.limiter` store is down, every exception is reported, so a budget on the
-store's own exception (`RedisException`) caps a blip, not an outage.
+Nothing to call: `report($e)` and uncaught exceptions are throttled per class. The gate runs in
+`shouldntReport()`, ahead of the log write and every `reportable` (Sentry, Flare, …). It fails open:
+while the `cache.limiter` store is down every exception is reported, so a budget on the store's own
+exception (`RedisException`) caps a blip, not an outage.
 
 ### Per call
 
@@ -70,10 +70,10 @@ Report::exception($e, limit: Limit::perHour(1));
 Report::exception($e, limit: Limit::perMinute(5)->by("tenant:{$tenant->id}"));
 ```
 
-Context is scoped to that report (`Context::scope()`). A `limit` caps that one report, also when
-`$exceptions->map()` wraps the exception as `previous`. Without `by()`, a class's per-call limits share
-one bucket, apart from its plain reports, and the first hit sets its window; `by()` names the bucket
-(per tenant, or across classes).
+- Context is scoped to that report (`Context::scope()`).
+- A `limit` caps that one report, also when `$exceptions->map()` wraps the exception as `previous`.
+- Without `by()`, a class's per-call limits share one bucket, apart from its plain reports, and the
+  first hit sets its window. `by()` names the bucket (per tenant, or across classes).
 
 ### Messages
 
@@ -86,12 +86,13 @@ Report::error('Feed fetch failed', ['feed' => $id], previous: $e);
 Report::error('Payment circuit breaker opened', budget: Budget::perDay(2));
 ```
 
-Reports the message as a `FloodControl\OperationalError`, log line included, bucketed per **call
-site** so one noisy caller cannot spend another's budget. `previous` is chained (the sink keeps its
-trace) and does not change the bucket. `budget` sets that call site's pace; without it, the budget
-for `OperationalError` applies (the `classes` entry that matches it, a catch-all included, or the
-default). Subclass `OperationalError` to give a subsystem its own name in the sink and report it with
-`Report::exception()`: it is then bucketed per class.
+- Reports the message as a `FloodControl\OperationalError`, log line included.
+- Bucketed per **call site**, so one noisy caller cannot spend another's budget. `previous` is chained
+  (the sink keeps its trace) and does not change the bucket.
+- `budget` sets that call site's pace. Without it, the budget for `OperationalError` applies: the
+  `classes` entry that matches it, a catch-all included, or the default.
+- Subclass `OperationalError` to give a subsystem its own name in the sink, and report it with
+  `Report::exception()`: it is then bucketed per class.
 
 ## Log lines
 
@@ -104,24 +105,16 @@ LogThrottle::once('feed-stale', 900, ['single', 'slack'])->warning('Feed is stal
 LogThrottle::times('shadow-source-failed', Budget::of(3, 300))->warning('Shadow source failed');
 ```
 
-```php
-once(string $key, ?int $seconds, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
-times(string $key, Budget $budget, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
-```
-
 - `once()` returns the real logger **exactly once** per window, even across workers (one
   `Cache::add()`). `times()` allows **about** N: workers racing its counter can let an extra one
   through. Prefer `once()` unless you want several samples.
 - Past the budget they return a logger that discards: every level, `withContext()` and array messages
   work, and no `MessageLogged` fires (nothing reaches Telescope or Sentry breadcrumbs).
-- `$channel`: a channel or stack name, an array of channels (an on-demand stack), or `null` for the
-  default.
+- The last argument picks the logger: a channel name or enum, an array of channels (an on-demand
+  stack), a `LoggerInterface`, or `null` for the default channel.
 - A `null` window never throttles, a cache failure lets the line through, and no `flood-control`
   config applies.
 - Keep keys code-owned: a key built from request data is unbounded cache cardinality.
-
-`Budget::of(3, 600)`, `Budget::perMinute(3)`, `Budget::perHour()`, `Budget::perDay(5)`,
-`Budget::unlimited()`.
 
 ### Per channel
 
@@ -134,9 +127,10 @@ rate-limit what it passes on:
 'slack'  => [/* … */, 'tap' => [\FloodControl\LogThrottle::class . ':3,600']],  // its own: 3 per 600s
 ```
 
-- Each level and call site (file and line) gets its own bucket. Not the message: placeholders are
-  filled before any handler runs, so one site's messages all differ. Malformed tap arguments throw,
-  and Laravel then writes to its emergency log instead of that channel.
+- Each level and call site (file and line) gets its own bucket, not each message: placeholders are
+  filled before any handler runs, so one site's messages all differ. Two tapped channels whose
+  handlers share a class (two Slack webhooks) share those buckets.
+- Malformed tap arguments throw, and Laravel then writes to its emergency log instead of that channel.
 - Lines below the channel's level cost nothing. Records with an `exception` pass uncounted: every
   reported exception is logged that way, and the gate already limited it.
 - A dropped line still reaches the other channels of a stack, and still fires `MessageLogged`, so it
@@ -177,9 +171,9 @@ hiding anything from counters.
 ## Sinks
 
 Sentry, Flare, Bugsnag and Rollbar register `reportable`s, so they already sit behind the gate. A
-sink's **log channel** in `LOG_STACK` also takes every plain log line at its level (`debug` up
-without a `level`), and wired with the reportable the sink gets each exception twice. Prefer the
-reportable; to keep the channel for plain log lines, give it a level, keep it off exceptions and
+sink's **log channel** in `LOG_STACK` also takes every plain log line at its level (`debug` up without
+a `level`), and wired beside the reportable it gets each exception twice. Prefer the reportable; to
+keep the channel for plain log lines, give it a level, keep it off exceptions and
 [tap it](#per-channel):
 
 ```php
@@ -195,6 +189,26 @@ reportable; to keep the channel for plain log lines, give it a level, keep it of
 ['exception' => $e])` stops reaching the sink: use `Report::exception()` or `Report::error()`. Their
 context is Laravel `Context`, which the sink sends with the event (Sentry: `contexts.laravel`), so
 your scrubber should cover it.
+
+## API
+
+All in the `FloodControl` namespace.
+
+```php
+Report::exception(Throwable $e, array $context = [], ?Limit $limit = null): void
+Report::error(string $message, array $context = [], ?Throwable $previous = null, ?Budget $budget = null): void
+
+LogThrottle::once(string $key, ?int $seconds, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
+LogThrottle::times(string $key, Budget $budget, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
+LogThrottle::class               // a channel tap; LogThrottle::class . ':3,600' sets its own budget
+
+Budget::of(int $times, int $seconds)
+Budget::perMinute(int $times = 1)   Budget::perHour(int $times = 1)   Budget::perDay(int $times = 1)
+Budget::unlimited()
+$budget->times   $budget->seconds   $budget->isUnlimited()   $budget->toLimit(?string $key = null): Limit
+
+OperationalError                 // extends RuntimeException; what Report::error() reports
+```
 
 ## Testing
 
@@ -215,9 +229,14 @@ Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 
 ## Upgrading
 
-### From 2.2
+### From 2.3
 
-Nothing to do: the [channel tap](#per-channel) is opt-in.
+- Require `"ismailnakkar/laravel-flood-control": "^3.0"`.
+- `Budget::fromConfig()` is gone: it parsed a `classes` entry for the package. Build the budget yourself:
+  `Budget::fromConfig(['limit' => 3], $default)` → `Budget::of(3, $default->seconds)`.
+- `LogThrottle::once()` and `times()` keep their gates under new cache keys (`flood-control:once:…`,
+  `flood-control:times:…`), so one key used with both no longer clobbers the other. On deploy, each
+  `once()` window still open logs one more line, and each `times()` window starts its count over.
 
 ## Licence
 

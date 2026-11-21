@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FloodControl;
 
 use BackedEnum;
+use Closure;
 use Illuminate\Cache\NullStore;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Logger;
@@ -22,13 +23,16 @@ use UnitEnum;
  */
 final class LogThrottle
 {
+    /** Separate per method: RateLimiter would read once()'s gate as a spent counter and clear it. */
+    private const ONCE_PREFIX = 'flood-control:once:';
+
+    private const TIMES_PREFIX = 'flood-control:times:';
+
     /**
      * The real logger once per $seconds for $key, a discarding one after; a null or sub-1 window
      * never throttles. Exactly once, even across workers: the gate is one Cache::add().
      *
-     * $channel: an array is an on-demand stack; null is the default channel.
-     *
-     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
+     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel  An array is an on-demand stack.
      */
     public static function once(
         string $key,
@@ -36,55 +40,33 @@ final class LogThrottle
         LoggerInterface|UnitEnum|array|string|null $channel = null,
     ): LoggerInterface {
         $budget = Budget::of(1, $seconds ?? 0);
-        $logger = self::logger($channel);
 
-        if ($budget->isUnlimited()) {
-            return $logger;
-        }
-
-        try {
+        return self::gate($channel, $budget, static function () use ($key, $budget): bool {
             $cache = app('cache')->store(config('cache.limiter'));
 
             // Repository::add() is always false on a NullStore, which would discard every line.
-            if ($cache->getStore() instanceof NullStore) {
-                return $logger;
-            }
-
-            return $cache->add(self::cacheKey($key), true, $budget->seconds) ? $logger : self::discard();
-        } catch (Throwable) {
-            // Fail open: an outage is when this line matters most.
-            return $logger;
-        }
+            return $cache->getStore() instanceof NullStore
+                || $cache->add(self::cacheKey(self::ONCE_PREFIX, $key), true, $budget->seconds);
+        });
     }
 
     /**
      * The real logger for the first $budget->times calls per window, a discarding one after. About
-     * N: workers racing the counter can let an extra one through, so prefer once() unless you want
-     * several samples.
+     * N: workers racing the counter can let an extra one through.
      *
-     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
+     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel  An array is an on-demand stack.
      */
     public static function times(
         string $key,
         Budget $budget,
         LoggerInterface|UnitEnum|array|string|null $channel = null,
     ): LoggerInterface {
-        $logger = self::logger($channel);
-
-        if ($budget->isUnlimited()) {
-            return $logger;
-        }
-
-        try {
-            return app(RateLimiter::class)->attempt(
-                self::cacheKey($key),
-                $budget->times,
-                static fn (): bool => true,
-                $budget->seconds,
-            ) ? $logger : self::discard();
-        } catch (Throwable) {
-            return $logger;
-        }
+        return self::gate($channel, $budget, static fn (): bool => app(RateLimiter::class)->attempt(
+            self::cacheKey(self::TIMES_PREFIX, $key),
+            $budget->times,
+            static fn (): bool => true,
+            $budget->seconds,
+        ));
     }
 
     /**
@@ -108,6 +90,29 @@ final class LogThrottle
             static fn (HandlerInterface $handler): HandlerInterface => new ThrottledHandler($handler, $budget),
             $logger->getHandlers(),
         ));
+    }
+
+    /**
+     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
+     * @param  Closure(): bool  $passes  Spends one of $budget; false once it is used up.
+     */
+    private static function gate(
+        LoggerInterface|UnitEnum|array|string|null $channel,
+        Budget $budget,
+        Closure $passes,
+    ): LoggerInterface {
+        $logger = self::logger($channel);
+
+        if ($budget->isUnlimited()) {
+            return $logger;
+        }
+
+        try {
+            return $passes() ? $logger : self::discard();
+        } catch (Throwable) {
+            // Fail open: an outage is when this line matters most.
+            return $logger;
+        }
     }
 
     /** @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel */
@@ -136,9 +141,9 @@ final class LogThrottle
         return new Logger(new Monolog('flood-control'));
     }
 
-    private static function cacheKey(string $key): string
+    private static function cacheKey(string $prefix, string $key): string
     {
         // Hashed: memcached rejects long keys, and a rejected add() reads as already logged.
-        return 'log-throttle:' . hash('xxh128', $key);
+        return $prefix . hash('xxh128', $key);
     }
 }

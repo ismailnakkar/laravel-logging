@@ -11,9 +11,9 @@ use Throwable;
 /**
  * @internal
  *
- * Bound in place of Pulse's exceptions recorder so the card counts in front of the gate; Pulse's own
- * counts from a reportable, behind it. Recording is delegated, so Pulse's settings still apply. It
- * has no register(), so Pulse wires none of its hooks: the provider wires the ones below.
+ * Bound in place of Pulse's exceptions recorder, which counts from a reportable behind the gate, so
+ * the card counts in front of it instead. Recording is delegated, so Pulse's settings still apply.
+ * With no register(), Pulse wires none of its hooks: the provider wires the ones below.
  */
 final class PulseExceptionRecorder
 {

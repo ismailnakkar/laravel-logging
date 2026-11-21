@@ -7,7 +7,6 @@ namespace FloodControl\Tests;
 use FloodControl\Budget;
 use FloodControl\OperationalError;
 use FloodControl\Report;
-use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Context;
 use PHPUnit\Framework\Attributes\Test;
@@ -49,13 +48,7 @@ class ReportErrorTest extends TestCase
     public function it_still_reports_when_the_limiter_store_throws(): void
     {
         $this->captureReports();
-        $this->app->bind(RateLimiter::class, function (): RateLimiter {
-            $limiter = $this->createStub(RateLimiter::class);
-            $limiter->method('attempt')->willThrowException(new RuntimeException('redis is down'));
-            $limiter->method('tooManyAttempts')->willThrowException(new RuntimeException('redis is down'));
-
-            return $limiter;
-        });
+        $this->breakRateLimiter();
 
         Report::error('the feed is stale');
 

@@ -20,7 +20,7 @@ use Throwable;
 final class ThrottledHandler extends HandlerWrapper
 {
     /** Frames between the call site and the handler; Monolog's are skipped already. */
-    private const SKIP = ['Illuminate\\Log\\', 'Illuminate\\Support\\Facades\\', self::class];
+    private const SKIPPED_CLASSES = ['Illuminate\\Log\\', 'Illuminate\\Support\\Facades\\', self::class];
 
     /** @param  Budget|null  $budget  null reads the top-level limit and window per line. */
     public function __construct(HandlerInterface $handler, private readonly ?Budget $budget)
@@ -92,7 +92,7 @@ final class ThrottledHandler extends HandlerWrapper
     private function key(LogRecord $record): string
     {
         // On a clone: the processor writes the call site into extra, which the handler would log.
-        $extra = (new IntrospectionProcessor(skipClassesPartials: self::SKIP))(clone $record)->extra;
+        $extra = (new IntrospectionProcessor(skipClassesPartials: self::SKIPPED_CLASSES))(clone $record)->extra;
 
         $site = isset($extra['file']) ? $extra['file'] . ':' . $extra['line'] : $record->message;
 

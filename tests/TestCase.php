@@ -6,12 +6,15 @@ namespace FloodControl\Tests;
 
 use FloodControl\FloodControlServiceProvider;
 use FloodControl\Tests\Fixtures\CapturingIngest;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Laravel\Pulse\Contracts\Ingest;
 use Laravel\Pulse\Entry;
 use Laravel\Pulse\Facades\Pulse;
 use Laravel\Pulse\PulseServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
+use RuntimeException;
 use Throwable;
 
 abstract class TestCase extends Orchestra
@@ -50,6 +53,32 @@ abstract class TestCase extends Orchestra
 
             return false;
         });
+    }
+
+    /** @param  class-string<Throwable>  $class */
+    protected function reportTimes(string $class, int $times): void
+    {
+        foreach (range(1, $times) as $i) {
+            report(new $class("boom {$i}"));
+        }
+    }
+
+    /** As a store outage would: every attempt throws. */
+    protected function breakRateLimiter(): void
+    {
+        $limiter = $this->createStub(RateLimiter::class);
+        $limiter->method('attempt')->willThrowException(new RuntimeException('redis is down'));
+
+        $this->app->instance(RateLimiter::class, $limiter);
+    }
+
+    /** `about` writes through its own formatter, which expectsOutputToContain() does not see. */
+    protected function aboutOutput(): string
+    {
+        $this->withoutMockingConsoleOutput();
+        $this->artisan('about --only=flood_control');
+
+        return $this->app[Kernel::class]->output();
     }
 
     /**

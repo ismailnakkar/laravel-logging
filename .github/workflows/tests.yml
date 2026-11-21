@@ -4,17 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # The whole grid, on pull requests and when run by hand before a tag. A push to main runs only `newest`.
   test:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -34,10 +38,10 @@ jobs:
           # laravel/pulse is a suggestion, so the suite has to pass without it too.
           - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, pulse: without }
 
-    name: PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }} · ${{ matrix.deps }} · ${{ matrix.pulse }} pulse
+    name: &name PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }} · ${{ matrix.deps }} · ${{ matrix.pulse }} pulse
 
-    steps:
-      - uses: actions/checkout@v4
+    steps: &steps
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -63,3 +67,15 @@ jobs:
         run: composer analyse
 
       - run: vendor/bin/phpunit
+
+  # A push to main: the grid's newest row, which also runs the rest of the check.
+  newest:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, pulse: with }
+    name: *name
+    steps: *steps

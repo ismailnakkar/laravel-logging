@@ -6,7 +6,6 @@ namespace FloodControl\Tests;
 
 use FloodControl\PulseExceptionRecorder;
 use FloodControl\PulseReportListener;
-use Illuminate\Contracts\Console\Kernel;
 use Illuminate\View\ViewException;
 use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Facades\Pulse;
@@ -107,11 +106,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function the_recorder_swap_is_announced_by_artisan_about(): void
     {
-        // `about` writes through its own formatter, which expectsOutputToContain() does not see.
-        $this->withoutMockingConsoleOutput();
-        $this->artisan('about --only=flood_control');
-
-        $output = $this->app[Kernel::class]->output();
+        $output = $this->aboutOutput();
 
         $this->assertStringContainsString('Pulse counter', $output);
         $this->assertStringContainsString('counts in front of the gate', $output);
@@ -141,10 +136,7 @@ class PulseCounterTest extends TestCase
     {
         config(['flood-control.pulse' => false]);
 
-        $this->withoutMockingConsoleOutput();
-        $this->artisan('about --only=flood_control');
-
-        $output = $this->app[Kernel::class]->output();
+        $output = $this->aboutOutput();
 
         $this->assertStringContainsString('Pulse counter', $output);
         $this->assertStringNotContainsString('counts in front of the gate', $output);

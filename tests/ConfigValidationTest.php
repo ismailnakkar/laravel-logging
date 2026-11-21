@@ -76,6 +76,19 @@ class ConfigValidationTest extends TestCase
     }
 
     #[Test]
+    public function a_limit_only_entry_takes_the_default_window(): void
+    {
+        $this->classes = [RuntimeException::class => ['limit' => 3]];
+
+        $this->refreshApplication();
+
+        $this->assertEquals(
+            Budget::of(3, 300),
+            app(ThrottleConfig::class)->for(new RuntimeException('boom')),
+        );
+    }
+
+    #[Test]
     public function a_window_only_entry_is_a_valid_shorthand(): void
     {
         $this->classes = [RuntimeException::class => ['window' => 3600]];

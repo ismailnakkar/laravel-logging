@@ -198,12 +198,7 @@ class ChannelTapTest extends TestCase
         // Tapped before the binding: the limiter is resolved per line, as Octane needs.
         Log::channel('sink');
 
-        $this->app->bind(RateLimiter::class, function (): RateLimiter {
-            $limiter = $this->createStub(RateLimiter::class);
-            $limiter->method('attempt')->willThrowException(new RuntimeException('redis is down'));
-
-            return $limiter;
-        });
+        $this->breakRateLimiter();
 
         foreach (range(1, 3) as $ignored) {
             $this->fromFirstSite();

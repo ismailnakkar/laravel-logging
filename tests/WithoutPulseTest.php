@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
-use Illuminate\Contracts\Console\Kernel;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
@@ -36,10 +35,7 @@ class WithoutPulseTest extends TestCase
     #[Test]
     public function about_reports_the_counter_as_off(): void
     {
-        $this->withoutMockingConsoleOutput();
-        $this->artisan('about --only=flood_control');
-
-        $output = $this->app[Kernel::class]->output();
+        $output = $this->aboutOutput();
 
         $this->assertStringContainsString('Pulse counter', $output);
         $this->assertStringNotContainsString('counts in front of the gate', $output);

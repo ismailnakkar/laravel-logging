@@ -6,10 +6,7 @@ namespace FloodControl;
 
 use Illuminate\Cache\RateLimiting\Limit;
 
-/**
- * $times per $seconds. Below 1 on either side means no limit, not never: an empty env var reads as 0.
- * The only home of this rule; other code asks isUnlimited().
- */
+/** $times per $seconds. Below 1 on either side means no limit, not never: an empty env var reads as 0. */
 final readonly class Budget
 {
     private function __construct(public int $times, public int $seconds) {}
@@ -37,15 +34,6 @@ final readonly class Budget
     public static function unlimited(): self
     {
         return new self(0, 0);
-    }
-
-    /** @param  array<string, mixed>  $entry  A `classes` entry; absent keys fall back to $default. */
-    public static function fromConfig(array $entry, self $default): self
-    {
-        return new self(
-            (int)($entry['limit'] ?? $default->times),
-            (int)($entry['window'] ?? $default->seconds),
-        );
     }
 
     /**
