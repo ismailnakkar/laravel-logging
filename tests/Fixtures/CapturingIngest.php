@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests\Fixtures;
+namespace Logging\Tests\Fixtures;
 
 use Illuminate\Support\Collection;
 use Laravel\Pulse\Contracts\Ingest;

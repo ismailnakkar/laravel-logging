@@ -11,7 +11,7 @@ parameters:
         -
             identifier: method.notFound
             message: '#^Call to an undefined method object::(dontReportWhen|reportable|throttleUsing)\(\)\.$#'
-            path: src/FloodControlServiceProvider.php
+            path: src/LoggingServiceProvider.php
         # once() promises a LoggerInterface; this test pins the withContext() both of its loggers also take.
         -
             identifier: method.notFound

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -12,17 +12,30 @@ use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
+use Logging\Redaction\Driver;
+use Logging\Redaction\Redactor;
+use Logging\Redaction\SentryDriver;
 use ReflectionObject;
 use Throwable;
 use WeakMap;
 
 /** @internal */
-final class FloodControlServiceProvider extends ServiceProvider
+final class LoggingServiceProvider extends ServiceProvider
 {
     /** How many handlers unwrap() checks, the outermost included, before it gives up. */
     private const MAX_HANDLER_DEPTH = 8;
 
     private const BUDGET_KEYS = ['limit', 'window'];
+
+    /**
+     * One per error tracker; each wires itself only when its tracker is installed.
+     *
+     * @var list<class-string<Driver>>
+     */
+    private const DRIVERS = [SentryDriver::class];
+
+    /** The redaction lists: each takes non-empty strings only. */
+    private const REDACTION_KEYS = ['redact', 'redact_paths'];
 
     private bool $wrapsPulse = false;
 
@@ -33,14 +46,14 @@ final class FloodControlServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/flood-control.php', 'flood-control');
+        $this->mergeConfigFrom(__DIR__ . '/../config/reporting.php', 'reporting');
 
         $this->wired = new WeakMap;
 
         $this->app->singleton(ThrottleConfig::class);
 
         // Must land before Pulse boots and resolves its recorders, or Pulse keeps its stock one.
-        // No config check: `flood-control.pulse` is read per exception.
+        // No config check: `reporting.pulse` is read per exception.
         $this->wrapsPulse = class_exists(PulseExceptions::class) && ! $this->app->isBooted();
 
         if ($this->wrapsPulse) {
@@ -49,14 +62,19 @@ final class FloodControlServiceProvider extends ServiceProvider
                 return new PulseExceptionRecorder($app->build(PulseExceptions::class));
             });
         }
+
+        // No config check: the rules are read per event.
+        foreach (self::DRIVERS as $driver) {
+            (new $driver)->register($this->app);
+        }
     }
 
     public function boot(Dispatcher $events): void
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
-                __DIR__ . '/../config/flood-control.php' => config_path('flood-control.php'),
-            ], 'flood-control-config');
+                __DIR__ . '/../config/reporting.php' => config_path('reporting.php'),
+            ], 'reporting-config');
 
             $this->registerAboutCommandIntegration();
         }
@@ -65,6 +83,7 @@ final class FloodControlServiceProvider extends ServiceProvider
         if (! $this->app->configurationIsCached()) {
             $this->validateClassBudgets();
             $this->validateCounters();
+            $this->validateRedaction();
         }
 
         if ($this->wrapsPulse) {
@@ -134,7 +153,7 @@ final class FloodControlServiceProvider extends ServiceProvider
     /** @return list<mixed> */
     private function counters(): array
     {
-        return array_values((array)$this->app->make('config')->get('flood-control.counters', []));
+        return array_values((array)$this->app->make('config')->get('reporting.counters', []));
     }
 
     /**
@@ -193,7 +212,7 @@ final class FloodControlServiceProvider extends ServiceProvider
         foreach ((new ThrottleConfig($this->app->make('config')))->classes() as $class => $budget) {
             if (! self::isClassOrInterface($class)) {
                 throw new InvalidArgumentException(
-                    "flood-control.classes: [{$class}] is not a class or interface that exists.",
+                    "reporting.classes: [{$class}] is not a class or interface that exists.",
                 );
             }
 
@@ -203,21 +222,21 @@ final class FloodControlServiceProvider extends ServiceProvider
 
             if (! is_array($budget) || $budget === []) {
                 throw new InvalidArgumentException(
-                    "flood-control.classes.[{$class}]: expected ['limit' => ?int, 'window' => ?int].",
+                    "reporting.classes.[{$class}]: expected ['limit' => ?int, 'window' => ?int].",
                 );
             }
 
             foreach (self::BUDGET_KEYS as $key) {
                 if (array_key_exists($key, $budget) && ! is_int($budget[$key])) {
                     throw new InvalidArgumentException(
-                        "flood-control.classes.[{$class}]: '{$key}' must be an int.",
+                        "reporting.classes.[{$class}]: '{$key}' must be an int.",
                     );
                 }
             }
 
             if ($unknown = array_diff(array_keys($budget), self::BUDGET_KEYS)) {
                 throw new InvalidArgumentException(
-                    "flood-control.classes.[{$class}]: unknown key(s) " . implode(', ', $unknown) . '.',
+                    "reporting.classes.[{$class}]: unknown key(s) " . implode(', ', $unknown) . '.',
                 );
             }
         }
@@ -231,11 +250,33 @@ final class FloodControlServiceProvider extends ServiceProvider
             if (! self::isClassOrInterface($counter)) {
                 $name = is_string($counter) ? $counter : get_debug_type($counter);
 
-                throw new InvalidArgumentException("flood-control.counters: [{$name}] is not a class or interface that exists.");
+                throw new InvalidArgumentException("reporting.counters: [{$name}] is not a class or interface that exists.");
             }
 
             if (! method_exists($counter, '__invoke')) {
-                throw new InvalidArgumentException("flood-control.counters: [{$counter}] has no __invoke(Throwable \$e).");
+                throw new InvalidArgumentException("reporting.counters: [{$counter}] has no __invoke(Throwable \$e).");
+            }
+        }
+    }
+
+    /** A malformed entry would otherwise be skipped silently, leaving its secret in the logs. */
+    private function validateRedaction(): void
+    {
+        $config = $this->app->make('config');
+
+        foreach (self::REDACTION_KEYS as $key) {
+            $list = $config->get("reporting.{$key}", []);
+
+            if (! is_array($list)) {
+                throw new InvalidArgumentException("reporting.{$key}: expected a list of names.");
+            }
+
+            foreach ($list as $entry) {
+                if (! is_string($entry) || trim($entry, '/ ') === '') {
+                    $name = is_string($entry) ? "'{$entry}'" : get_debug_type($entry);
+
+                    throw new InvalidArgumentException("reporting.{$key}: [{$name}] is not a non-empty name.");
+                }
             }
         }
     }
@@ -248,17 +289,18 @@ final class FloodControlServiceProvider extends ServiceProvider
 
     private function registerAboutCommandIntegration(): void
     {
-        AboutCommand::add('Flood Control', function (): array {
+        AboutCommand::add('Reporting', function (): array {
             $config = $this->app->make(ThrottleConfig::class);
             $budget = $config->default();
 
             return [
                 'Exception budget'  => $budget->isUnlimited() ? 'unlimited' : sprintf('%d per %ds', $budget->times, $budget->seconds),
                 'Per class budgets' => (string)count($config->classes()),
-                'Enabled'           => AboutCommand::format(
-                    $config->enabled(),
+                'Throttle'          => AboutCommand::format(
+                    $config->throttles(),
                     console: fn (bool $on): string => $on ? '<fg=yellow;options=bold>ENABLED</>' : 'OFF',
                 ),
+                'Redacted keys' => (string)count((array)$this->app->make('config')->get('reporting.redact', Redactor::DEFAULT_KEYS)),
                 'Pulse counter' => AboutCommand::format(
                     $this->wrapsPulse && PulseExceptionRecorder::countsInFront(),
                     console: fn (bool $on): string => $on ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF',

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -22,7 +22,7 @@ class WithoutPulseTest extends TestCase
     #[Test]
     public function the_throttle_works_with_no_pulse_installed(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {

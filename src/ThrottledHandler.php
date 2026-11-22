@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Cache\RateLimiter;
 use Monolog\Handler\HandlerInterface;
@@ -68,7 +68,7 @@ final class ThrottledHandler extends HandlerWrapper
             $config = app(ThrottleConfig::class);
             $budget = $this->budget ?? $config->default();
 
-            if (! $config->enabled() || $budget->isUnlimited()) {
+            if (! $config->throttles() || $budget->isUnlimited()) {
                 return true;
             }
 
@@ -96,6 +96,6 @@ final class ThrottledHandler extends HandlerWrapper
 
         $site = isset($extra['file']) ? $extra['file'] . ':' . $extra['line'] : $record->message;
 
-        return 'flood-control:log:' . hash('xxh128', $this->handler::class . '|' . $record->level->name . '|' . $site);
+        return 'reporting:log:' . hash('xxh128', $this->handler::class . '|' . $record->level->name . '|' . $site);
     }
 }

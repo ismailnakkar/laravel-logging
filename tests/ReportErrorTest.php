@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Budget;
-use FloodControl\OperationalError;
-use FloodControl\Report;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Context;
+use Logging\Budget;
+use Logging\OperationalError;
+use Logging\Report;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
@@ -17,8 +17,8 @@ class ReportErrorTest extends TestCase
 {
     protected function defineEnvironment($app): void
     {
-        $app['config']->set('flood-control.limit', 1);
-        $app['config']->set('flood-control.window', 300);
+        $app['config']->set('reporting.limit', 1);
+        $app['config']->set('reporting.window', 300);
     }
 
     /** Separate call sites: the file and line are the bucket. */
@@ -169,7 +169,7 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function a_classes_entry_budgets_it_like_any_other_throwable(): void
     {
-        config(['flood-control.classes' => [OperationalError::class => ['limit' => 3, 'window' => 300]]]);
+        config(['reporting.classes' => [OperationalError::class => ['limit' => 3, 'window' => 300]]]);
         $this->captureReports();
 
         foreach (range(1, 6) as $ignored) {
@@ -182,7 +182,7 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function the_gate_being_off_reports_every_one(): void
     {
-        config(['flood-control.enabled' => false]);
+        config(['reporting.throttle' => false]);
         $this->captureReports();
 
         foreach (range(1, 4) as $ignored) {

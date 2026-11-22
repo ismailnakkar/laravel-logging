@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Report;
-use FloodControl\Tests\Fixtures\MappedFrom;
-use FloodControl\Tests\Fixtures\MappedTo;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Exceptions;
+use Logging\Report;
+use Logging\Tests\Fixtures\MappedFrom;
+use Logging\Tests\Fixtures\MappedTo;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -56,7 +56,7 @@ class ReportTest extends TestCase
     #[Test]
     public function it_can_tighten_the_limit_for_one_exception(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         Report::exception(new RuntimeException('first'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
@@ -69,7 +69,7 @@ class ReportTest extends TestCase
     #[Test]
     public function it_can_widen_the_limit_for_one_exception(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {
@@ -82,7 +82,7 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_changes_the_ceiling_for_that_call_not_the_bucket(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         Report::exception(new RuntimeException('overridden'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
@@ -94,7 +94,7 @@ class ReportTest extends TestCase
     #[Test]
     public function a_non_positive_per_call_limit_means_no_limit(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         foreach (range(1, 4) as $i) {
@@ -108,7 +108,7 @@ class ReportTest extends TestCase
     public function a_per_call_window_is_used_instead_of_the_configured_one(): void
     {
         // A zero configured window means no limit, so only the per-call window can throttle.
-        config(['flood-control.limit' => 10, 'flood-control.window' => 0]);
+        config(['reporting.limit' => 10, 'reporting.window' => 0]);
         $this->captureReports();
 
         foreach (range(1, 4) as $i) {
@@ -121,7 +121,7 @@ class ReportTest extends TestCase
     #[Test]
     public function the_kill_switch_beats_a_per_call_override(): void
     {
-        config(['flood-control.enabled' => false]);
+        config(['reporting.throttle' => false]);
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {
@@ -134,7 +134,7 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_is_spent_by_the_report_it_was_set_on(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         $e = new RuntimeException('boom');
@@ -148,13 +148,13 @@ class ReportTest extends TestCase
     public function an_override_the_gate_never_reached_does_not_linger(): void
     {
         // Disabled, the gate returns before taking the override.
-        config(['flood-control.enabled' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.throttle' => false, 'reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $e = new RuntimeException('boom');
         Report::exception($e, limit: new Limit(maxAttempts: 0, decaySeconds: 300));
 
-        config(['flood-control.enabled' => true]);
+        config(['reporting.throttle' => true]);
         report($e);
         report($e);
 
@@ -165,7 +165,7 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_survives_exception_mapping(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         Exceptions::map(
             fn (MappedFrom $e): MappedTo => new MappedTo('mapped', 0, $e),
         );
@@ -182,7 +182,7 @@ class ReportTest extends TestCase
     #[Test]
     public function a_limit_with_a_key_picks_its_own_bucket(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         Report::exception(new RuntimeException('first'), limit: Limit::perHour(1)->by('tenant:7'));
@@ -197,7 +197,7 @@ class ReportTest extends TestCase
     #[TestWith([null])]
     public function an_overrides_window_does_not_govern_later_plain_reports(?string $key): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         Report::exception(new RuntimeException('overridden'), limit: Limit::perHour(1)->by($key));
@@ -211,7 +211,7 @@ class ReportTest extends TestCase
     #[Test]
     public function one_limit_reused_across_classes_does_not_keep_the_first_classs_bucket(): void
     {
-        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 10, 'reporting.window' => 300]);
         $this->captureReports();
 
         $limit = Limit::perHour(1);
@@ -225,7 +225,7 @@ class ReportTest extends TestCase
     #[Test]
     public function without_context_or_a_limit_it_is_just_report(): void
     {
-        config(['flood-control.limit' => 2, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 2, 'reporting.window' => 300]);
         $this->captureReports();
 
         foreach (range(1, 4) as $i) {

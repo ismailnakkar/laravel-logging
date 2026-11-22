@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use DomainException;
 use InvalidArgumentException;
@@ -16,7 +16,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function it_registers_itself_without_a_bootstrap_edit(): void
     {
-        config(['flood-control.limit' => 2, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 2, 'reporting.window' => 300]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 5);
@@ -27,7 +27,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function the_budget_refills_when_the_window_ends(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 3);
@@ -40,7 +40,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function each_exception_class_gets_its_own_budget(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         report(new RuntimeException('first'));
@@ -57,9 +57,9 @@ class ExceptionThrottleTest extends TestCase
     public function a_per_class_budget_overrides_the_default(): void
     {
         config([
-            'flood-control.limit'   => 10,
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [RuntimeException::class => ['limit' => 1, 'window' => 300]],
+            'reporting.limit'   => 10,
+            'reporting.window'  => 300,
+            'reporting.classes' => [RuntimeException::class => ['limit' => 1, 'window' => 300]],
         ]);
         $this->captureReports();
 
@@ -73,9 +73,9 @@ class ExceptionThrottleTest extends TestCase
     public function a_per_class_budget_falls_back_to_the_default_window(): void
     {
         config([
-            'flood-control.limit'   => 10,
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [RuntimeException::class => ['limit' => 1]],
+            'reporting.limit'   => 10,
+            'reporting.window'  => 300,
+            'reporting.classes' => [RuntimeException::class => ['limit' => 1]],
         ]);
         $this->captureReports();
 
@@ -88,9 +88,9 @@ class ExceptionThrottleTest extends TestCase
     public function a_parent_class_entry_covers_its_subclasses(): void
     {
         config([
-            'flood-control.limit'   => 10,
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [LogicException::class => ['limit' => 1]],
+            'reporting.limit'   => 10,
+            'reporting.window'  => 300,
+            'reporting.classes' => [LogicException::class => ['limit' => 1]],
         ]);
         $this->captureReports();
 
@@ -105,9 +105,9 @@ class ExceptionThrottleTest extends TestCase
     public function an_interface_entry_covers_everything_under_it(): void
     {
         config([
-            'flood-control.limit'   => 10,
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [Throwable::class => ['limit' => 1]],
+            'reporting.limit'   => 10,
+            'reporting.window'  => 300,
+            'reporting.classes' => [Throwable::class => ['limit' => 1]],
         ]);
         $this->captureReports();
 
@@ -120,9 +120,9 @@ class ExceptionThrottleTest extends TestCase
     public function the_most_specific_entry_wins(): void
     {
         config([
-            'flood-control.limit'   => 1,
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.limit'   => 1,
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 Throwable::class       => ['limit' => 1],
                 LogicException::class  => ['limit' => 2],
                 DomainException::class => ['limit' => 3],
@@ -138,7 +138,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function disabling_the_package_stops_it_throttling_anything(): void
     {
-        config(['flood-control.enabled' => false, 'flood-control.limit' => 1]);
+        config(['reporting.throttle' => false, 'reporting.limit' => 1]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 4);
@@ -149,7 +149,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function a_missing_budget_fails_open_rather_than_silencing_everything(): void
     {
-        config(['flood-control.limit' => 0, 'flood-control.window' => 0]);
+        config(['reporting.limit' => 0, 'reporting.window' => 0]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 4);

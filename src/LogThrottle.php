@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use BackedEnum;
 use Closure;
@@ -24,9 +24,9 @@ use UnitEnum;
 final class LogThrottle
 {
     /** Separate per method: RateLimiter would read once()'s gate as a spent counter and clear it. */
-    private const ONCE_PREFIX = 'flood-control:once:';
+    private const ONCE_PREFIX = 'reporting:once:';
 
-    private const TIMES_PREFIX = 'flood-control:times:';
+    private const TIMES_PREFIX = 'reporting:times:';
 
     /**
      * The real logger once per $seconds for $key, a discarding one after; a null or sub-1 window
@@ -138,7 +138,7 @@ final class LogThrottle
      */
     private static function discard(): LoggerInterface
     {
-        return new Logger(new Monolog('flood-control'));
+        return new Logger(new Monolog('reporting'));
     }
 
     private static function cacheKey(string $prefix, string $key): string

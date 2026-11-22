@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Laravel\Pulse\Events\ExceptionReported;
 

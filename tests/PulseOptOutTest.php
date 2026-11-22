@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use PHPUnit\Framework\Attributes\Test;

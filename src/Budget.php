@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Cache\RateLimiting\Limit;
 

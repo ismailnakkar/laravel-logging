@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use DomainException;
 use Exception;
-use FloodControl\Tests\Fixtures\BroadMarker;
-use FloodControl\Tests\Fixtures\MarkedException;
-use FloodControl\Tests\Fixtures\NarrowMarker;
+use Logging\Tests\Fixtures\BroadMarker;
+use Logging\Tests\Fixtures\MarkedException;
+use Logging\Tests\Fixtures\NarrowMarker;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -22,8 +22,8 @@ class ClassResolutionTest extends TestCase
         // class_implements() lists Throwable before NarrowMarker, so only config order may decide
         // between these unrelated entries.
         config([
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 NarrowMarker::class => ['limit' => 1],
                 Throwable::class    => ['limit' => 20],
             ],
@@ -39,8 +39,8 @@ class ClassResolutionTest extends TestCase
     public function the_nearest_parent_wins_over_a_grandparent(): void
     {
         config([
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 Exception::class      => ['limit' => 5],
                 LogicException::class => ['limit' => 1],
             ],
@@ -56,8 +56,8 @@ class ClassResolutionTest extends TestCase
     public function a_class_entry_beats_an_interface_entry(): void
     {
         config([
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 Throwable::class        => ['limit' => 1],
                 RuntimeException::class => ['limit' => 3],
             ],
@@ -73,8 +73,8 @@ class ClassResolutionTest extends TestCase
     public function a_catch_all_written_first_swallows_a_narrower_entry(): void
     {
         config([
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 Throwable::class    => ['limit' => 3],
                 NarrowMarker::class => ['limit' => 1],
             ],
@@ -91,8 +91,8 @@ class ClassResolutionTest extends TestCase
     {
         // Written broad-first on purpose.
         config([
-            'flood-control.window'  => 300,
-            'flood-control.classes' => [
+            'reporting.window'  => 300,
+            'reporting.classes' => [
                 BroadMarker::class  => ['limit' => 5],
                 NarrowMarker::class => ['limit' => 1],
             ],
@@ -109,9 +109,9 @@ class ClassResolutionTest extends TestCase
     {
         // A zero default window means no limit, so only the per-class window can throttle.
         config([
-            'flood-control.limit'   => 10,
-            'flood-control.window'  => 0,
-            'flood-control.classes' => [RuntimeException::class => ['limit' => 1, 'window' => 600]],
+            'reporting.limit'   => 10,
+            'reporting.window'  => 0,
+            'reporting.classes' => [RuntimeException::class => ['limit' => 1, 'window' => 600]],
         ]);
         $this->captureReports();
 
@@ -123,7 +123,7 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function a_zero_limit_fails_open(): void
     {
-        config(['flood-control.limit' => 0, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 0, 'reporting.window' => 300]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 4);
@@ -134,7 +134,7 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function a_zero_window_fails_open(): void
     {
-        config(['flood-control.limit' => 2, 'flood-control.window' => 0]);
+        config(['reporting.limit' => 2, 'reporting.window' => 0]);
         $this->captureReports();
 
         $this->reportTimes(RuntimeException::class, 4);

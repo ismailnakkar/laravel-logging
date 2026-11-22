@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Budget;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Cache\RateLimiting\Unlimited;
+use Logging\Budget;
 use PHPUnit\Framework\Attributes\Test;
 
 class BudgetTest extends TestCase
@@ -40,8 +40,8 @@ class BudgetTest extends TestCase
     #[Test]
     public function a_key_becomes_the_bucket_and_no_key_leaves_it_to_the_handler(): void
     {
-        $keyed = Budget::of(3, 600)->toLimit('flood-control:error:abc');
-        $this->assertSame('flood-control:error:abc', $keyed->key);
+        $keyed = Budget::of(3, 600)->toLimit('reporting:error:abc');
+        $this->assertSame('reporting:error:abc', $keyed->key);
         $this->assertSame(3, $keyed->maxAttempts);
         $this->assertSame(600, $keyed->decaySeconds);
 

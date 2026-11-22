@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use Laravel\Pulse\Events\ExceptionReported;
 use PHPUnit\Framework\Attributes\Test;
@@ -12,8 +12,8 @@ class PulseDisabledTest extends TestCase
 {
     protected function setUp(): void
     {
-        // Through the env, so the FLOOD_CONTROL_PULSE wiring in the config file is covered too.
-        putenv('FLOOD_CONTROL_PULSE=false');
+        // Through the env, so the REPORTING_PULSE wiring in the config file is covered too.
+        putenv('REPORTING_PULSE=false');
 
         parent::setUp();
 
@@ -22,7 +22,7 @@ class PulseDisabledTest extends TestCase
 
     protected function tearDown(): void
     {
-        putenv('FLOOD_CONTROL_PULSE');
+        putenv('REPORTING_PULSE');
 
         parent::tearDown();
     }
@@ -40,7 +40,7 @@ class PulseDisabledTest extends TestCase
     #[Test]
     public function switching_it_on_after_boot_counts_in_front_of_the_gate(): void
     {
-        config(['flood-control.pulse' => true, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.pulse' => true, 'reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $counted = $this->pulseExceptions(function (): void {
@@ -56,7 +56,7 @@ class PulseDisabledTest extends TestCase
     #[Test]
     public function only_survivors_are_counted(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $counted = $this->pulseExceptions(function (): void {

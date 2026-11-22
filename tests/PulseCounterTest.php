@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\PulseExceptionRecorder;
-use FloodControl\PulseReportListener;
 use Illuminate\View\ViewException;
 use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Facades\Pulse;
 use Laravel\Pulse\Pulse as PulseInstance;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
+use Logging\PulseExceptionRecorder;
+use Logging\PulseReportListener;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
@@ -27,7 +27,7 @@ class PulseCounterTest extends TestCase
     public function every_exception_is_counted_even_when_the_report_is_throttled(): void
     {
         // 4, not 5: the one survivor must not be counted again behind the gate.
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $counted = $this->pulseExceptions(function (): void {
@@ -83,7 +83,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function a_counter_failure_does_not_disable_the_gate(): void
     {
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         Pulse::partialMock()->shouldReceive('recorders')->andThrow(new RuntimeException('pulse is down'));
         $this->captureReports();
 
@@ -118,7 +118,7 @@ class PulseCounterTest extends TestCase
     public function the_switch_is_read_per_exception(): void
     {
         // Set after boot, so the wiring cannot have seen it.
-        config(['flood-control.pulse' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.pulse' => false, 'reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         $counted = $this->pulseExceptions(function (): void {
@@ -134,7 +134,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function about_reads_the_switch_when_it_runs(): void
     {
-        config(['flood-control.pulse' => false]);
+        config(['reporting.pulse' => false]);
 
         $output = $this->aboutOutput();
 

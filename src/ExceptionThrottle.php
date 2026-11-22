@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Throwable;
@@ -24,7 +24,7 @@ final class ExceptionThrottle
     {
         $config = app(ThrottleConfig::class);
 
-        if (! $config->enabled()) {
+        if (! $config->throttles()) {
             return Limit::none();
         }
 
@@ -49,7 +49,7 @@ final class ExceptionThrottle
         // caller may reuse the Limit. A falsy key counts as none, as the handler reads it.
         self::overrides()[$e] = $limit->key
             ? $limit
-            : (clone $limit)->by('flood-control:override:' . $e::class);
+            : (clone $limit)->by('reporting:override:' . $e::class);
     }
 
     /** Drops an override report() never consumed. */

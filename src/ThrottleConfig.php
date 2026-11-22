@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Contracts\Config\Repository;
 use Throwable;
@@ -10,36 +10,36 @@ use Throwable;
 /**
  * @internal
  *
- * Reads the throttle keys (enabled, limit, window, classes) per call, and resolves the budget for
+ * Reads the throttle keys (throttle, limit, window, classes) per call, and resolves the budget for
  * one throwable.
  */
 final readonly class ThrottleConfig
 {
-    /** Both mirror config/flood-control.php, so a stale config cache without the keys still throttles. */
+    /** Both mirror config/reporting.php, so a stale config cache without the keys still throttles. */
     private const DEFAULT_LIMIT = 10;
 
     private const DEFAULT_WINDOW = 300;
 
     public function __construct(private Repository $config) {}
 
-    public function enabled(): bool
+    public function throttles(): bool
     {
-        return (bool)$this->config->get('flood-control.enabled', true);
+        return (bool)$this->config->get('reporting.throttle', true);
     }
 
     /** The top-level limit and window. */
     public function default(): Budget
     {
         return Budget::of(
-            (int)$this->config->get('flood-control.limit', self::DEFAULT_LIMIT),
-            (int)$this->config->get('flood-control.window', self::DEFAULT_WINDOW),
+            (int)$this->config->get('reporting.limit', self::DEFAULT_LIMIT),
+            (int)$this->config->get('reporting.window', self::DEFAULT_WINDOW),
         );
     }
 
     /** @return array<array-key, mixed> The `classes` entries, unvalidated. */
     public function classes(): array
     {
-        return (array)$this->config->get('flood-control.classes', []);
+        return (array)$this->config->get('reporting.classes', []);
     }
 
     /** The most specific `classes` entry $e matches, or the default. */

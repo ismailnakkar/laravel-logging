@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Budget;
-use FloodControl\LogThrottle;
-use FloodControl\Tests\Fixtures\Channel;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
+use Logging\Budget;
+use Logging\LogThrottle;
+use Logging\Tests\Fixtures\Channel;
 use Monolog\Handler\NullHandler;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
@@ -96,8 +96,8 @@ class LogThrottleTest extends TestCase
 
         $store = $this->app->make(CacheManager::class)->store(config('cache.limiter'));
 
-        $this->assertTrue($store->has('flood-control:once:0b4daf8ec10943ca139c28d628e8f62c'));
-        $this->assertSame(1, $store->get('flood-control:times:0b4daf8ec10943ca139c28d628e8f62c'));
+        $this->assertTrue($store->has('reporting:once:0b4daf8ec10943ca139c28d628e8f62c'));
+        $this->assertSame(1, $store->get('reporting:times:0b4daf8ec10943ca139c28d628e8f62c'));
     }
 
     #[Test]

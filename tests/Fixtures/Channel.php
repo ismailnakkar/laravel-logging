@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests\Fixtures;
+namespace Logging\Tests\Fixtures;
 
 enum Channel: string
 {

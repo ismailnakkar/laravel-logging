@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
 use DateTimeImmutable;
-use FloodControl\LogThrottle;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use Logging\LogThrottle;
 use Monolog\Handler\FormattableHandlerInterface;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Handler\ProcessableHandlerInterface;
@@ -38,8 +38,8 @@ class ChannelTapTest extends TestCase
         $this->file = new TestHandler(Level::Debug);
         $this->otherSink = new class(Level::Error) extends TestHandler {};
 
-        $app['config']->set('flood-control.limit', 1);
-        $app['config']->set('flood-control.window', 300);
+        $app['config']->set('reporting.limit', 1);
+        $app['config']->set('reporting.window', 300);
         $app['config']->set('logging.channels.sink', [
             'driver' => 'custom',
             'via'    => fn (): Monolog => new Monolog('sink', [$this->sink]),
@@ -93,7 +93,7 @@ class ChannelTapTest extends TestCase
     {
         // Tapped before the change: the budget is read per line, not when the tap runs.
         Log::channel('sink');
-        config(['flood-control.limit' => 2]);
+        config(['reporting.limit' => 2]);
 
         foreach (range(1, 5) as $ignored) {
             $this->fromFirstSite();
@@ -212,7 +212,7 @@ class ChannelTapTest extends TestCase
     {
         // Tapped before the change: the switch is read per line.
         Log::channel('sink');
-        config(['flood-control.enabled' => false]);
+        config(['reporting.throttle' => false]);
 
         foreach (range(1, 3) as $ignored) {
             $this->fromFirstSite();

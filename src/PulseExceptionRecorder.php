@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Laravel\Pulse\Pulse;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
@@ -28,7 +28,7 @@ final class PulseExceptionRecorder
         return null;
     }
 
-    /** A reportable: counts behind the gate, as Pulse does, while `flood-control.pulse` is off. */
+    /** A reportable: counts behind the gate, as Pulse does, while `reporting.pulse` is off. */
     public static function countSurvivor(Throwable $e): void
     {
         if (! self::countsInFront()) {
@@ -48,7 +48,7 @@ final class PulseExceptionRecorder
 
     public static function countsInFront(): bool
     {
-        return (bool)config('flood-control.pulse', true);
+        return (bool)config('reporting.pulse', true);
     }
 
     public function record(Throwable $e): void

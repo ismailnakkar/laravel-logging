@@ -26,7 +26,7 @@ jobs:
         php: ['8.2', '8.3', '8.4', '8.5']
         laravel: ['12.*', '13.*']
         deps: [prefer-lowest, prefer-stable]
-        pulse: [with]
+        suggested: [with]
         exclude:
           # Laravel 13 needs PHP 8.3.
           - { php: '8.2', laravel: '13.*' }
@@ -35,10 +35,10 @@ jobs:
             testbench: '10.*'
           - laravel: '13.*'
             testbench: '11.*'
-          # laravel/pulse is a suggestion, so the suite has to pass without it too.
-          - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, pulse: without }
+          # laravel/pulse and sentry/sentry-laravel are suggestions, so the suite has to pass without them too.
+          - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, suggested: without }
 
-    name: &name PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }} · ${{ matrix.deps }} · ${{ matrix.pulse }} pulse
+    name: &name PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }} · ${{ matrix.deps }} · ${{ matrix.suggested }} suggested
 
     steps: &steps
       - uses: actions/checkout@v7
@@ -48,8 +48,8 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
 
-      - if: matrix.pulse == 'without'
-        run: composer remove --dev laravel/pulse --no-update --no-interaction
+      - if: matrix.suggested == 'without'
+        run: composer remove --dev laravel/pulse sentry/sentry-laravel --no-update --no-interaction
 
       # Testbench picks the Laravel major; prefer-lowest installs composer.json's own floors.
       - run: composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-interaction --no-update
@@ -60,10 +60,10 @@ jobs:
         env:
           COMPOSER_POLICY_ADVISORIES_BLOCK: ${{ matrix.deps == 'prefer-lowest' && '0' || '1' }}
 
-      - if: matrix.php == '8.5' && matrix.laravel == '13.*' && matrix.deps == 'prefer-stable' && matrix.pulse == 'with'
+      - if: matrix.php == '8.5' && matrix.laravel == '13.*' && matrix.deps == 'prefer-stable' && matrix.suggested == 'with'
         run: vendor/bin/pint --test
 
-      - if: matrix.php == '8.5' && matrix.laravel == '13.*' && matrix.deps == 'prefer-stable' && matrix.pulse == 'with'
+      - if: matrix.php == '8.5' && matrix.laravel == '13.*' && matrix.deps == 'prefer-stable' && matrix.suggested == 'with'
         run: composer analyse
 
       - run: vendor/bin/phpunit
@@ -76,6 +76,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, pulse: with }
+          - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, suggested: with }
     name: *name
     steps: *steps

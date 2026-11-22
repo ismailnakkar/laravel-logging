@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Budget;
-use FloodControl\ThrottleConfig;
 use InvalidArgumentException;
+use Logging\Budget;
+use Logging\Redaction\Redactor;
+use Logging\ThrottleConfig;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -17,6 +18,10 @@ class ConfigValidationTest extends TestCase
     private mixed $classes = [];
 
     private mixed $counters = [];
+
+    private mixed $redact = Redactor::DEFAULT_KEYS;
+
+    private mixed $redactPaths = Redactor::DEFAULT_PATHS;
 
     private bool $configIsCached = false;
 
@@ -123,6 +128,30 @@ class ConfigValidationTest extends TestCase
         $this->refreshApplication();
     }
 
+    /** @return array<string, array{mixed, mixed, string}> */
+    public static function badRedaction(): array
+    {
+        return [
+            'keys that are not a list' => ['token', [], 'reporting.redact: expected a list of names'],
+            'a key that is no string'  => [['token', 5], [], 'reporting.redact: [int] is not a non-empty name'],
+            'an empty key'             => [['token', ''], [], "reporting.redact: [''] is not a non-empty name"],
+            'a path of slashes only'   => [[], ['reset-password', '/'], "reporting.redact_paths: ['/'] is not a non-empty name"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('badRedaction')]
+    public function it_refuses_a_malformed_redaction_list(mixed $redact, mixed $paths, string $expected): void
+    {
+        $this->redact = $redact;
+        $this->redactPaths = $paths;
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($expected);
+
+        $this->refreshApplication();
+    }
+
     #[Test]
     public function a_cached_config_skips_the_check(): void
     {
@@ -140,8 +169,10 @@ class ConfigValidationTest extends TestCase
 
     protected function defineEnvironment($app): void
     {
-        $app['config']->set('flood-control.classes', $this->classes);
-        $app['config']->set('flood-control.counters', $this->counters);
+        $app['config']->set('reporting.classes', $this->classes);
+        $app['config']->set('reporting.counters', $this->counters);
+        $app['config']->set('reporting.redact', $this->redact);
+        $app['config']->set('reporting.redact_paths', $this->redactPaths);
 
         if ($this->configIsCached) {
             // What Application::configurationIsCached() checks before touching the filesystem.

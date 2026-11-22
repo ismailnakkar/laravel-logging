@@ -2,10 +2,8 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\FloodControlServiceProvider;
-use FloodControl\Tests\Fixtures\CapturingIngest;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -13,8 +11,11 @@ use Laravel\Pulse\Contracts\Ingest;
 use Laravel\Pulse\Entry;
 use Laravel\Pulse\Facades\Pulse;
 use Laravel\Pulse\PulseServiceProvider;
+use Logging\LoggingServiceProvider;
+use Logging\Tests\Fixtures\CapturingIngest;
 use Orchestra\Testbench\TestCase as Orchestra;
 use RuntimeException;
+use Sentry\Laravel\ServiceProvider as SentryServiceProvider;
 use Throwable;
 
 abstract class TestCase extends Orchestra
@@ -27,7 +28,7 @@ abstract class TestCase extends Orchestra
         // CI also runs the suite without laravel/pulse.
         return array_values(array_filter([
             self::hasPulse() ? PulseServiceProvider::class : null,
-            FloodControlServiceProvider::class,
+            LoggingServiceProvider::class,
         ]));
     }
 
@@ -41,6 +42,12 @@ abstract class TestCase extends Orchestra
         if (! self::hasPulse()) {
             $this->markTestSkipped('laravel/pulse is not installed.');
         }
+    }
+
+    /** CI also runs the suite without sentry/sentry-laravel. */
+    protected static function hasSentry(): bool
+    {
+        return class_exists(SentryServiceProvider::class);
     }
 
     /** Records what passed the gate; returning false skips the handler's log write. */
@@ -76,7 +83,7 @@ abstract class TestCase extends Orchestra
     protected function aboutOutput(): string
     {
         $this->withoutMockingConsoleOutput();
-        $this->artisan('about --only=flood_control');
+        $this->artisan('about --only=reporting');
 
         return $this->app[Kernel::class]->output();
     }

@@ -2,19 +2,21 @@
 
 declare(strict_types=1);
 
+use Logging\Redaction\Redactor;
+
 return [
 
     /*
      * Exception throttling on or off, per-call Report::exception() limits and the LogThrottle channel
      * tap included. Counting and LogThrottle::once()/times() are unaffected.
      */
-    'enabled' => env('FLOOD_CONTROL_ENABLED', true),
+    'throttle' => env('REPORTING_THROTTLE', true),
 
     /*
      * With laravel/pulse installed, count every reported exception in front of the gate, so the
      * exceptions card shows the real rate. Off, Pulse counts survivors only. Read per exception.
      */
-    'pulse' => env('FLOOD_CONTROL_PULSE', true),
+    'pulse' => env('REPORTING_PULSE', true),
 
     /*
      * Invokable classes called with every reported exception, throttled or not. Resolved from the
@@ -28,8 +30,8 @@ return [
     /*
      * The default budget: this many reports per exception class per window, in seconds.
      */
-    'limit'  => env('FLOOD_CONTROL_LIMIT', 10),
-    'window' => env('FLOOD_CONTROL_WINDOW', 300),
+    'limit'  => env('REPORTING_LIMIT', 10),
+    'window' => env('REPORTING_WINDOW', 300),
 
     /*
      * Per-class budgets. An entry covers its subtypes (class or interface) and the most specific
@@ -39,11 +41,27 @@ return [
      *   \Illuminate\Database\QueryException::class => ['limit' => 1, 'window' => 3600],
      *   \Throwable::class                          => ['limit' => 20],
      *
-     * Arrays or a FloodControl\Budget, not a Limit: a Limit fails `config:cache`. A limit or window
+     * Arrays or a Logging\Budget, not a Limit: a Limit fails `config:cache`. A limit or window
      * below 1 means no limit; to silence a class, use `$exceptions->dontReport()`.
      */
     'classes' => [
         //
     ],
+
+    /*
+     * Names whose values are hidden as [redacted]: keys at any depth of a log line's context and
+     * extra, and of a Sentry event's extra, contexts, breadcrumbs and spans; query and fragment
+     * parameters in any URL or text; request headers. Matched without case, `-` or `_`: api_key
+     * also covers api-key and apiKey. Add yours to the defaults, or list only your own:
+     *
+     *   [...Redactor::DEFAULT_KEYS, 'license_key', 'x-tenant-key'],
+     */
+    'redact' => Redactor::DEFAULT_KEYS,
+
+    /*
+     * Path prefixes whose next segment is a credential, hidden in any URL or text:
+     * /reset-password/{token} becomes /reset-password/[redacted].
+     */
+    'redact_paths' => Redactor::DEFAULT_PATHS,
 
 ];

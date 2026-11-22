@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Budget;
-use FloodControl\FloodControlServiceProvider;
-use FloodControl\ThrottleConfig;
 use Illuminate\Support\Facades\File;
+use Logging\Budget;
+use Logging\LoggingServiceProvider;
+use Logging\Redaction\Redactor;
+use Logging\ThrottleConfig;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
@@ -39,32 +40,51 @@ class DefaultsTest extends TestCase
     public function an_absent_config_key_falls_back_to_the_shipped_budget(): void
     {
         // A config cache from before install skips mergeConfigFrom(), so every key is absent.
-        config(['flood-control' => null]);
+        config(['reporting' => null]);
 
         $this->assertEquals(
             Budget::of(10, 300),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
 
-        $this->assertTrue(app(ThrottleConfig::class)->enabled());
+        $this->assertTrue(app(ThrottleConfig::class)->throttles());
+    }
+
+    #[Test]
+    public function an_absent_redaction_key_still_redacts_by_the_shipped_rules(): void
+    {
+        config(['reporting' => null]);
+
+        $this->assertSame(
+            'https://example.test/reset-password/[redacted]?email=[redacted]',
+            Redactor::fromConfig()->text('https://example.test/reset-password/abc?email=member%40example.com'),
+        );
+    }
+
+    #[Test]
+    public function the_config_file_ships_the_default_rules(): void
+    {
+        $this->assertSame(Redactor::DEFAULT_KEYS, config('reporting.redact'));
+        $this->assertSame(Redactor::DEFAULT_PATHS, config('reporting.redact_paths'));
     }
 
     #[Test]
     public function artisan_about_reports_the_budget_that_is_actually_in_force(): void
     {
-        config(['flood-control' => null]);
+        config(['reporting' => null]);
 
         $output = $this->aboutOutput();
 
         $this->assertStringContainsString('10 per 300s', $output);
         $this->assertStringContainsString('ENABLED', $output);
+        $this->assertMatchesRegularExpression('/Redacted keys\W+' . count(Redactor::DEFAULT_KEYS) . '/', $output);
     }
 
     #[Test]
     public function artisan_about_calls_a_sub_one_budget_unlimited(): void
     {
-        // An empty FLOOD_CONTROL_LIMIT reads as 0, which reports everything.
-        config(['flood-control.limit' => 0]);
+        // An empty REPORTING_LIMIT reads as 0, which reports everything.
+        config(['reporting.limit' => 0]);
 
         $this->assertStringContainsString('unlimited', $this->aboutOutput());
     }
@@ -76,7 +96,7 @@ class DefaultsTest extends TestCase
         $composer = File::json(__DIR__ . '/../composer.json', JSON_THROW_ON_ERROR);
 
         $this->assertSame(
-            [FloodControlServiceProvider::class],
+            [LoggingServiceProvider::class],
             $composer['extra']['laravel']['providers'] ?? null,
         );
     }

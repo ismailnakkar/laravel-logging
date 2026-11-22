@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Tests\Fixtures\UngateableHandler;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Laravel\Pulse\Events\ExceptionReported;
+use Logging\Tests\Fixtures\UngateableHandler;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 

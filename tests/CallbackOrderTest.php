@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Tests\Fixtures\RecordingCounter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Logging\Tests\Fixtures\RecordingCounter;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
@@ -25,9 +25,9 @@ class CallbackOrderTest extends TestCase
     {
         self::$counted = [];
 
-        $app['config']->set('flood-control.limit', 1);
-        $app['config']->set('flood-control.window', 300);
-        $app['config']->set('flood-control.counters', [RecordingCounter::class]);
+        $app['config']->set('reporting.limit', 1);
+        $app['config']->set('reporting.window', 300);
+        $app['config']->set('reporting.counters', [RecordingCounter::class]);
 
         $app->instance(RecordingCounter::class, $this->counter = new RecordingCounter);
 

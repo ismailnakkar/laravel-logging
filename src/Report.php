@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace FloodControl;
+namespace Logging;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Context;
@@ -59,7 +59,7 @@ final class Report
 
         // eval()'d or native code has no file. One shared bucket beats keying on the message.
         return isset($frame['file'])
-            ? 'flood-control:error:' . hash('xxh128', $frame['file'] . ':' . ($frame['line'] ?? 0))
-            : 'flood-control:error';
+            ? 'reporting:error:' . hash('xxh128', $frame['file'] . ':' . ($frame['line'] ?? 0))
+            : 'reporting:error';
     }
 }

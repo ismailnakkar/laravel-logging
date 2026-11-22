@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\LogThrottle;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
+use Logging\LogThrottle;
 use Monolog\Handler\NullHandler;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -47,7 +47,7 @@ class NullCacheStoreTest extends TestCase
     public function the_exception_side_fails_open_too(): void
     {
         // The RateLimiter reads 0 attempts from a no-op store, so nothing is throttled.
-        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        config(['reporting.limit' => 1, 'reporting.window' => 300]);
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {

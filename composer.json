@@ -1,16 +1,17 @@
 {
-    "name": "ismailnakkar/laravel-flood-control",
-    "description": "Rate-limit reported exceptions and repeated log lines in Laravel.",
+    "name": "ismailnakkar/laravel-logging",
+    "description": "Throttle reported exceptions and log lines, add request context to log lines, and redact secrets from logs and error trackers in Laravel.",
     "keywords": [
         "laravel",
+        "logging",
         "exceptions",
         "throttle",
         "rate-limit",
-        "logging",
+        "redaction",
         "pulse",
         "sentry"
     ],
-    "homepage": "https://github.com/ismailnakkar/laravel-flood-control",
+    "homepage": "https://github.com/ismailnakkar/laravel-logging",
     "license": "MIT",
     "type": "library",
     "authors": [
@@ -20,7 +21,7 @@
         }
     ],
     "support": {
-        "issues": "https://github.com/ismailnakkar/laravel-flood-control/issues"
+        "issues": "https://github.com/ismailnakkar/laravel-logging/issues"
     },
     "require": {
         "php": "^8.2",
@@ -33,19 +34,21 @@
         "laravel/pint": "^1.18",
         "laravel/pulse": "^1.0",
         "orchestra/testbench": "^10.0 || ^11.0",
-        "phpunit/phpunit": "^11.5 || ^12.0"
+        "phpunit/phpunit": "^11.5 || ^12.0",
+        "sentry/sentry-laravel": "^4.13"
     },
     "suggest": {
-        "laravel/pulse": "Keeps an unthrottled exception rate signal alongside the throttled reports."
+        "laravel/pulse": "Keeps an unthrottled exception rate signal alongside the throttled reports.",
+        "sentry/sentry-laravel": "Redacts Sentry events and transactions by the same rules as log lines (4.x)."
     },
     "autoload": {
         "psr-4": {
-            "FloodControl\\": "src/"
+            "Logging\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "FloodControl\\Tests\\": "tests/"
+            "Logging\\Tests\\": "tests/"
         }
     },
     "scripts": {
@@ -61,7 +64,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "FloodControl\\FloodControlServiceProvider"
+                "Logging\\LoggingServiceProvider"
             ]
         }
     },

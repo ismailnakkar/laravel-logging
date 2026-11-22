@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace FloodControl\Tests;
+namespace Logging\Tests;
 
-use FloodControl\Tests\Fixtures\BrokenCounter;
-use FloodControl\Tests\Fixtures\RecordingCounter;
-use FloodControl\Tests\Fixtures\ReportingCounter;
+use Logging\Tests\Fixtures\BrokenCounter;
+use Logging\Tests\Fixtures\RecordingCounter;
+use Logging\Tests\Fixtures\ReportingCounter;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
@@ -21,9 +21,9 @@ class CountersTest extends TestCase
 
     protected function defineEnvironment($app): void
     {
-        $app['config']->set('flood-control.limit', 1);
-        $app['config']->set('flood-control.window', 300);
-        $app['config']->set('flood-control.counters', $this->counters);
+        $app['config']->set('reporting.limit', 1);
+        $app['config']->set('reporting.window', 300);
+        $app['config']->set('reporting.counters', $this->counters);
 
         $app->instance(RecordingCounter::class, $this->counter = new RecordingCounter);
         $app->instance(ReportingCounter::class, $this->reporter = new ReportingCounter);
@@ -67,7 +67,7 @@ class CountersTest extends TestCase
     #[Test]
     public function counters_still_run_with_the_package_disabled(): void
     {
-        config(['flood-control.enabled' => false]);
+        config(['reporting.throttle' => false]);
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {
@@ -83,7 +83,7 @@ class CountersTest extends TestCase
     {
         $this->counters = [ReportingCounter::class];
         $this->refreshApplication();
-        config(['flood-control.limit' => 100]);
+        config(['reporting.limit' => 100]);
         $this->captureReports();
 
         report(new RuntimeException('boom'));
@@ -115,7 +115,7 @@ class CountersTest extends TestCase
         $this->refreshApplication();
         $this->captureReports();
 
-        config(['flood-control.counters' => [RecordingCounter::class]]);
+        config(['reporting.counters' => [RecordingCounter::class]]);
         report(new RuntimeException('boom'));
 
         $this->assertSame(['boom'], $this->counter->seen);
