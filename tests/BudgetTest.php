@@ -6,8 +6,15 @@ namespace Logging\Tests;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Cache\RateLimiting\Unlimited;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use League\Flysystem\FilesystemException;
 use Logging\Budget;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Http\Client\NetworkExceptionInterface;
+use RedisException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class BudgetTest extends TestCase
 {
@@ -47,6 +54,21 @@ class BudgetTest extends TestCase
 
         $this->assertSame('', Budget::of(3, 600)->toLimit()->key);
         $this->assertInstanceOf(Limit::class, Budget::of(3, 600)->toLimit());
+    }
+
+    #[Test]
+    public function the_outage_budgets_cover_each_failing_dependency(): void
+    {
+        $this->assertEquals([
+            QueryException::class => Budget::of(3, 600),
+            // Left out where phpredis is not loaded: `classes` refuses a class that does not exist.
+            ...(extension_loaded('redis') ? [RedisException::class => Budget::of(3, 600)] : []),
+            ConnectionException::class          => Budget::of(5, 600),
+            NetworkExceptionInterface::class    => Budget::of(5, 600),
+            TransportExceptionInterface::class  => Budget::of(3, 900),
+            FilesystemException::class          => Budget::of(5, 600),
+            MaxAttemptsExceededException::class => Budget::of(5, 900),
+        ], Budget::outages());
     }
 
     #[Test]

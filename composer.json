@@ -9,6 +9,7 @@
         "rate-limit",
         "redaction",
         "pulse",
+        "horizon",
         "sentry"
     ],
     "homepage": "https://github.com/ismailnakkar/laravel-logging",
@@ -31,6 +32,7 @@
     },
     "require-dev": {
         "larastan/larastan": "^3.12",
+        "laravel/horizon": "^5.44",
         "laravel/pint": "^1.18",
         "laravel/pulse": "^1.0",
         "orchestra/testbench": "^10.0 || ^11.0",
@@ -38,6 +40,7 @@
         "sentry/sentry-laravel": "^4.13"
     },
     "suggest": {
+        "laravel/horizon": "Logs a queue wait above its Horizon threshold, once per interval, when reporting.long_wait is set.",
         "laravel/pulse": "Keeps an unthrottled exception rate signal alongside the throttled reports.",
         "sentry/sentry-laravel": "Redacts Sentry events and transactions by the same rules as log lines (4.x)."
     },

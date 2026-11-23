@@ -8,6 +8,8 @@ What a Laravel app reports and logs, kept in check:
 - **Request context**: a tap that adds the HTTP request to each log line.
 - **Redaction**: one list of secrets, applied by drivers to what leaves the server: the log channels
   you tap (Slack) and Sentry (automatically, when installed).
+- **Queue waits**: with Horizon, a queue backed up past its threshold is logged as an error, once per
+  interval, when you opt in.
 
 ## Install
 
@@ -16,9 +18,10 @@ composer require ismailnakkar/laravel-logging
 php artisan vendor:publish --tag=reporting-config   # optional
 ```
 
-Requires PHP 8.2+, Laravel 12.21+ or 13, and Monolog 3. `laravel/pulse` 1.x and
-`sentry/sentry-laravel` 4.x are optional. The provider is auto-discovered and wires itself into the
-exception handler and the Sentry client: no `bootstrap/app.php` or `config/sentry.php` edit.
+Requires PHP 8.2+, Laravel 12.21+ or 13, and Monolog 3. `laravel/pulse` 1.x,
+`sentry/sentry-laravel` 4.x and `laravel/horizon` 5.x are optional. The provider is auto-discovered
+and wires itself into the exception handler, the Sentry client and Horizon's events: no
+`bootstrap/app.php` or `config/sentry.php` edit.
 
 The config file is `config/reporting.php` (key `reporting`), since `config/logging.php` is Laravel's own.
 
@@ -35,6 +38,7 @@ and server shares, such as Redis or the database, or each process or server thro
 | `limit` | `REPORTING_LIMIT` | `10` | Reports per exception class per window. |
 | `window` | `REPORTING_WINDOW` | `300` | Window in seconds. |
 | `classes` | | `[]` | Per-class budgets, below. |
+| `long_wait` | | `null` | Seconds between [long-wait alerts](#horizon-long-waits) per queue; `null` is off. |
 | `redact` | | `Redactor::DEFAULT_KEYS` | Names whose values are hidden, see [Redaction](#redaction). |
 | `redact_paths` | | `['reset-password']` | Path prefixes whose next segment is a credential. |
 
@@ -62,6 +66,33 @@ Anywhere in this package, a limit or window below 1 means no limit, not never. T
 ```php
 ...class_exists(\Aws\Exception\AwsException::class) ? [\Aws\Exception\AwsException::class => ['limit' => 1]] : [],
 ```
+
+### Outage budgets
+
+`Budget::outages()` holds budgets for what a failing dependency throws on every request or job.
+Spread it first, then add your own entries or override one of its by class:
+
+```php
+use Logging\Budget;
+
+'classes' => [
+    ...Budget::outages(),
+    \Captcha\CaptchaUnavailable::class        => ['limit' => 3, 'window' => 600],
+    \Illuminate\Database\QueryException::class => Budget::perHour(1),   // replaces its 3 per 600s
+],
+```
+
+| Class | Budget | Why |
+| --- | --- | --- |
+| `Illuminate\Database\QueryException` | 3 per 600s | The database being down means every request throws. |
+| `RedisException` | 3 per 600s | phpredis, which also backs `cache.limiter`: a blip is capped, a full outage is not (the gate fails open). |
+| `Illuminate\Http\Client\ConnectionException` | 5 per 600s | `Http::`'s transfer failures. |
+| `Psr\Http\Client\NetworkExceptionInterface` | 5 per 600s | A client called directly: an SDK or Socialite on Guzzle 7 or 8, any PSR-18 client. |
+| `Symfony\Component\Mailer\Exception\TransportExceptionInterface` | 3 per 900s | Every mail transport. |
+| `League\Flysystem\FilesystemException` | 5 per 600s | Every disk. |
+| `Illuminate\Queue\MaxAttemptsExceededException` | 5 per 900s | One poison job retried across every worker reports on each attempt. |
+
+A class that is not loaded (phpredis not installed) is left out, as `classes` refuses one.
 
 ## Exceptions
 
@@ -149,6 +180,24 @@ rate-limit what it passes on:
 - Laravel's `info('…')` and `logger('…')` helpers are one call site each, whoever calls them; `Log::`
   calls are not.
 - `throttle` switches it off, and a cache outage fails open.
+
+## Horizon long waits
+
+Horizon fires `LongWaitDetected` each minute a queue waits longer than its threshold (`waits` in
+`config/horizon.php`, 60 seconds by default), and tells only a mail, Slack or SMS route it is given.
+Set `long_wait` to log it instead, so it reaches your default channel's sinks (Sentry):
+
+```php
+// config/reporting.php
+'long_wait' => 3600,   // one error per queue per hour while it stays backed up
+```
+
+- The line is `error('Queue wait is above its Horizon threshold', ['connection' => …, 'queue' => …,
+  'seconds' => …])` through [`LogThrottle::once()`](#log-lines), keyed
+  `horizon:long-wait:{connection}:{queue}`: each queue alerts on its own, exactly once per window.
+- `null`, the default, logs nothing. Below 1 logs every check. Anything but `null` or an int throws
+  at boot.
+- Read per event, so a test or a deploy can change it at runtime. Without Horizon nothing is wired.
 
 ## Request context
 
@@ -312,6 +361,7 @@ LogThrottle::class               // a channel tap; LogThrottle::class . ':3,600'
 Budget::of(int $times, int $seconds)
 Budget::perMinute(int $times = 1)   Budget::perHour(int $times = 1)   Budget::perDay(int $times = 1)
 Budget::unlimited()
+Budget::outages(): array<class-string<Throwable>, Budget>   // spread into `classes`
 $budget->times   $budget->seconds   $budget->isUnlimited()   $budget->toLimit(?string $key = null): Limit
 
 OperationalError                 // extends RuntimeException; what Report::error() reports
@@ -345,6 +395,44 @@ Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 `AddRequestContext` on a real channel.
 
 ## Upgrading
+
+### From 4.0
+
+Nothing changes until an app opts in: `long_wait` is `null` (a published file without it reads
+`null`) and `classes` keeps its `[]` default. Require `"ismailnakkar/laravel-logging": "^4.1"` to use
+either step below.
+
+**Long-wait alert.** Set `'long_wait' => 3600` in `config/reporting.php` and delete the app's own
+listener, its registration and its tests in the same deploy. The package keeps their cache key, so
+the windows they opened carry over: a deploy during a backlog does not alert again, and the two never
+both log.
+
+- cuty: `app/Listeners/ReportLongQueueWait.php`, the `LongWaitDetected` entry (and its two imports) in
+  `app/Providers/EventServiceProvider.php`, `tests/Feature/HorizonLongWaitAlertTest.php`.
+- exe: `app/Listeners/ReportLongQueueWait.php`, the `Event::listen(LongWaitDetected::class, …)` line
+  (and its two imports) in `app/Providers/AppServiceProvider.php`,
+  `tests/Feature/Ops/HorizonLongWaitAlertTest.php`.
+- upfiles: `app/Listeners/ReportLongQueueWait.php`, the `LongWaitDetected` entry, its comment and its
+  two imports in `app/Providers/EventServiceProvider.php`,
+  `tests/Feature/Listeners/ReportLongQueueWaitTest.php`.
+- vhit: `app/Listeners/ReportLongQueueWait.php` (event discovery found it: nothing to unregister).
+  `tests/Feature/HorizonLongWaitAlertTest.php` keeps
+  `test_the_analysis_queue_has_its_own_wait_threshold` (its `horizon.waits` entry stays vhit's) and
+  drops the other three; the comment in `config/horizon.php` that names `ReportLongQueueWait` names
+  laravel-logging instead.
+
+**Outage budgets.** Put `...Budget::outages()` first in `classes`, drop the entries it holds and their
+comments and imports, and keep only the app's own after it:
+
+- cuty: keeps `CaptchaUnavailable`. Its budgets are unchanged.
+- exe: keeps `CaptchaUnavailable`. It gains `Psr\Http\Client\NetworkExceptionInterface` at 5 per 600s
+  (a Guzzle failure outside `Http::`), which had the default budget.
+- upfiles: keeps `AwsException` and `CaptchaUnavailable`, and drops
+  `GuzzleHttp\Exception\NetworkException`: the PSR interface covers it on Guzzle 8 and
+  `ConnectException` on Guzzle 7, at the same 5 per 600s.
+- vhit: `'classes' => Budget::outages()`. It gains `TransportExceptionInterface` (3 per 900s),
+  `FilesystemException` and `NetworkExceptionInterface` (5 per 600s each), which had the default budget.
+- centratag: no change; its `RedisException => Budget::perMinute(1)` stays its own.
 
 ### From laravel-flood-control 3
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Logging\Tests;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Queue\MaxAttemptsExceededException;
 use InvalidArgumentException;
 use Logging\Budget;
 use Logging\Redaction\Redactor;
@@ -22,6 +24,8 @@ class ConfigValidationTest extends TestCase
     private mixed $redact = Redactor::DEFAULT_KEYS;
 
     private mixed $redactPaths = Redactor::DEFAULT_PATHS;
+
+    private mixed $longWait = null;
 
     private bool $configIsCached = false;
 
@@ -78,6 +82,18 @@ class ConfigValidationTest extends TestCase
             Budget::of(1, 60),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
+    }
+
+    #[Test]
+    public function the_outage_budgets_pass_the_check_and_an_entry_after_them_overrides_one(): void
+    {
+        $this->classes = [...Budget::outages(), MaxAttemptsExceededException::class => Budget::of(1, 60)];
+
+        $this->refreshApplication();
+
+        $config = app(ThrottleConfig::class);
+        $this->assertEquals(Budget::of(5, 600), $config->for(new ConnectionException('down')));
+        $this->assertEquals(Budget::of(1, 60), $config->for(new MaxAttemptsExceededException('poison')));
     }
 
     #[Test]
@@ -152,6 +168,38 @@ class ConfigValidationTest extends TestCase
         $this->refreshApplication();
     }
 
+    /** @return array<string, array{mixed, string}> */
+    public static function badLongWaits(): array
+    {
+        return [
+            'seconds as a string' => ['3600', "reporting.long_wait: ['3600'] is not null or a number of seconds"],
+            'a float'             => [1.5, 'reporting.long_wait: [float] is not null or a number of seconds'],
+            'a switch'            => [true, 'reporting.long_wait: [bool] is not null or a number of seconds'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('badLongWaits')]
+    public function it_refuses_a_long_wait_that_is_not_seconds(mixed $longWait, string $expected): void
+    {
+        $this->longWait = $longWait;
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($expected);
+
+        $this->refreshApplication();
+    }
+
+    #[Test]
+    public function it_accepts_a_long_wait_in_seconds(): void
+    {
+        $this->longWait = 3600;
+
+        $this->refreshApplication();
+
+        $this->assertTrue($this->app->isBooted());
+    }
+
     #[Test]
     public function a_cached_config_skips_the_check(): void
     {
@@ -173,6 +221,7 @@ class ConfigValidationTest extends TestCase
         $app['config']->set('reporting.counters', $this->counters);
         $app['config']->set('reporting.redact', $this->redact);
         $app['config']->set('reporting.redact_paths', $this->redactPaths);
+        $app['config']->set('reporting.long_wait', $this->longWait);
 
         if ($this->configIsCached) {
             // What Application::configurationIsCached() checks before touching the filesystem.

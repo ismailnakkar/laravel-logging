@@ -10,6 +10,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Laravel\Horizon\Events\LongWaitDetected;
 use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use Logging\Redaction\Driver;
@@ -84,10 +85,16 @@ final class LoggingServiceProvider extends ServiceProvider
             $this->validateClassBudgets();
             $this->validateCounters();
             $this->validateRedaction();
+            $this->validateLongWait();
         }
 
         if ($this->wrapsPulse) {
             $events->listen(ExceptionReported::class, PulseReportListener::class);
+        }
+
+        // No config check: `reporting.long_wait` is read per event.
+        if (class_exists(LongWaitDetected::class)) {
+            $events->listen(LongWaitDetected::class, ReportLongQueueWait::class);
         }
 
         // An app's withExceptions() callbacks are added during bootstrap, so they run ahead of these.
@@ -278,6 +285,18 @@ final class LoggingServiceProvider extends ServiceProvider
                     throw new InvalidArgumentException("reporting.{$key}: [{$name}] is not a non-empty name.");
                 }
             }
+        }
+    }
+
+    /** A string or a float would otherwise be cast, a typo to 0: an alert on every check. */
+    private function validateLongWait(): void
+    {
+        $interval = $this->app->make('config')->get('reporting.long_wait');
+
+        if ($interval !== null && ! is_int($interval)) {
+            $name = is_string($interval) ? "'{$interval}'" : get_debug_type($interval);
+
+            throw new InvalidArgumentException("reporting.long_wait: [{$name}] is not null or a number of seconds.");
         }
     }
 
