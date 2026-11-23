@@ -35,7 +35,7 @@ jobs:
             testbench: '10.*'
           - laravel: '13.*'
             testbench: '11.*'
-          # laravel/pulse and sentry/sentry-laravel are suggestions, so the suite has to pass without them too.
+          # laravel/pulse, laravel/horizon and sentry/sentry-laravel are suggestions, so the suite has to pass without them too.
           - { php: '8.5', laravel: '13.*', testbench: '11.*', deps: prefer-stable, suggested: without }
 
     name: &name PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }} · ${{ matrix.deps }} · ${{ matrix.suggested }} suggested
@@ -49,7 +49,7 @@ jobs:
           coverage: none
 
       - if: matrix.suggested == 'without'
-        run: composer remove --dev laravel/pulse sentry/sentry-laravel --no-update --no-interaction
+        run: composer remove --dev laravel/pulse sentry/sentry-laravel laravel/horizon --no-update --no-interaction
 
       # Testbench picks the Laravel major; prefer-lowest installs composer.json's own floors.
       - run: composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-interaction --no-update

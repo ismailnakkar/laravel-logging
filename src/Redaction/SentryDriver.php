@@ -15,15 +15,41 @@ use Sentry\Laravel\ServiceProvider as SentryServiceProvider;
 /**
  * Redacts every event and transaction Sentry sends. It wraps the client's `before_send` and
  * `before_send_transaction` rather than taking their place in config/sentry.php, so an app's own
- * callbacks still run, first, and whatever they return is redacted last.
+ * callbacks still run, first, and whatever they return is redacted last. It also sets three options
+ * sentry-laravel's own config leaves at the SDK's defaults, under the app's, and turns a
+ * traces_sample_rate of 0 or below off.
  */
 final class SentryDriver implements Driver
 {
+    /** The SDK attaches request bodies (passwords, tokens, 2FA codes) whatever send_default_pii says. */
+    private const MAX_REQUEST_BODY_SIZE = 'never';
+
+    /**
+     * Seconds a send may take. Sends are synchronous, on the request path: the SDK's 5 would hold a
+     * request that long.
+     */
+    private const HTTP_TIMEOUT = 2;
+
+    /** Seconds to connect, for the same reason: the SDK's is 2. */
+    private const HTTP_CONNECT_TIMEOUT = 1;
+
+    /** Options sentry-laravel's own config/sentry.php does not set. */
+    private const CONFIG_DEFAULTS = [
+        'max_request_body_size' => self::MAX_REQUEST_BODY_SIZE,
+        'http_timeout'          => self::HTTP_TIMEOUT,
+        'http_connect_timeout'  => self::HTTP_CONNECT_TIMEOUT,
+    ];
+
     public function register(Application $app): void
     {
         if (! class_exists(SentryServiceProvider::class)) {
             return;
         }
+
+        // Under the app's config/sentry.php, as sentry-laravel merges its own file: a key the app sets
+        // wins, and as that file sets none of these, the two providers may register in either order.
+        $config = $app->make('config');
+        $config->set('sentry', [...self::CONFIG_DEFAULTS, ...(array)$config->get('sentry', [])]);
 
         // The builder is bound, not shared: each client the container builds is wrapped once.
         $app->extend(ClientBuilder::class, self::wrap(...));
@@ -32,6 +58,16 @@ final class SentryDriver implements Driver
     private static function wrap(ClientBuilder $builder): ClientBuilder
     {
         $options = $builder->getOptions();
+
+        // sentry-laravel's config sets the rate from SENTRY_TRACES_SAMPLE_RATE, and at 0 (or below) the
+        // SDK still continues an incoming sentry-trace header marked sampled: any client could force a
+        // sent transaction. At null the SDK samples none: the request, queue and scheduler
+        // transactions all start through the hub, which reads these options, not config.
+        $rate = $options->getTracesSampleRate();
+
+        if ($rate !== null && $rate <= 0.0) {
+            $options->setTracesSampleRate(null);
+        }
 
         // Sentry calls before_send for errors and messages only, and before_send_transaction for
         // transactions only, which carry the same request and breadcrumbs plus their spans.

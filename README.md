@@ -278,8 +278,22 @@ return is redacted last (`null` still drops the event). It covers:
 - breadcrumbs (metadata and message), the message, each exception's message,
 - a transaction's spans (data, such as `http.query`, and description).
 
-Not covered: Sentry Logs (`before_send_log`), check-ins and the user context. Keep `send_default_pii`
-off and `max_request_body_size` at `never`: what Sentry never collects needs no redaction.
+Not covered: Sentry Logs (`before_send_log`), check-ins and the user context. Leave
+`send_default_pii` off, Sentry's own default: it adds the user context.
+
+The driver also sets three options sentry-laravel's own `config/sentry.php` leaves at the SDK's
+defaults. It sets them in config, under yours, so a key you set in `config/sentry.php` wins:
+
+| Key | Set to | Why |
+| --- | --- | --- |
+| `max_request_body_size` | `'never'` | The SDK attaches request bodies (passwords, tokens) whatever `send_default_pii` says. What Sentry never collects needs no redaction. |
+| `http_timeout` | `2` | Sends are synchronous, on the request path: the SDK's 5 seconds would hold a request that long. |
+| `http_connect_timeout` | `1` | Likewise; the SDK's is 2. |
+
+A `traces_sample_rate` of 0 or below is off (`null`) on the client, whatever the config says: at 0 the
+SDK still continues an incoming `sentry-trace` header marked sampled, so any client could force a sent
+transaction. Sentry's config reads the rate from `SENTRY_TRACES_SAMPLE_RATE`, so a `0` or blank value
+there is off too, and `config('sentry.traces_sample_rate')` still reads `0.0`.
 
 ### Another tracker
 
@@ -396,50 +410,49 @@ Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 
 ## Upgrading
 
+### From 4.1
+
+With `sentry/sentry-laravel` installed, the driver now sets [three options](#sentry) where
+`config/sentry.php` has no such key, and turns a `traces_sample_rate` of 0 or below off. An app that
+sets none of them changes in three ways:
+
+- Request bodies are no longer sent (`max_request_body_size` is `never`).
+- A send gives up after 2 seconds, or after 1 when it cannot connect (the SDK's are 5 and 2).
+- A rate of 0, or a blank `SENTRY_TRACES_SAMPLE_RATE`, no longer continues an incoming `sentry-trace`
+  header marked sampled: no transaction is sent.
+
+Require `"ismailnakkar/laravel-logging": "^4.2"` to drop from `config/sentry.php` the three keys
+where they hold the values above, a guard that turns a rate of 0 into `null`, and their comments.
+Drop `'send_default_pii' => false` too where `SENTRY_SEND_DEFAULT_PII` is unset: Sentry's own config
+reads that variable, and its default is false. Delete the file when nothing else is left in it.
+
+A test that reads `traces_sample_rate` from config to check that guard goes with it: `config()` keeps
+Sentry's `0.0`, and the package's suite covers the client. A `config('sentry.…')` assertion on the
+three keys still passes, as the driver sets them in config.
+
 ### From 4.0
 
 Nothing changes until an app opts in: `long_wait` is `null` (a published file without it reads
 `null`) and `classes` keeps its `[]` default. Require `"ismailnakkar/laravel-logging": "^4.1"` to use
 either step below.
 
-**Long-wait alert.** Set `'long_wait' => 3600` in `config/reporting.php` and delete the app's own
-listener, its registration and its tests in the same deploy. The package keeps their cache key, so
-the windows they opened carry over: a deploy during a backlog does not alert again, and the two never
-both log.
+**Long-wait alert.** Set `'long_wait' => 3600` in `config/reporting.php`, and delete a
+`LongWaitDetected` listener of your own in the same deploy, with its registration and its tests, or
+both log. One that logged through `LogThrottle::once("horizon:long-wait:{connection}:{queue}", …)`
+hands over the windows it opened: a deploy during a backlog does not alert again.
 
-- cuty: `app/Listeners/ReportLongQueueWait.php`, the `LongWaitDetected` entry (and its two imports) in
-  `app/Providers/EventServiceProvider.php`, `tests/Feature/HorizonLongWaitAlertTest.php`.
-- exe: `app/Listeners/ReportLongQueueWait.php`, the `Event::listen(LongWaitDetected::class, …)` line
-  (and its two imports) in `app/Providers/AppServiceProvider.php`,
-  `tests/Feature/Ops/HorizonLongWaitAlertTest.php`.
-- upfiles: `app/Listeners/ReportLongQueueWait.php`, the `LongWaitDetected` entry, its comment and its
-  two imports in `app/Providers/EventServiceProvider.php`,
-  `tests/Feature/Listeners/ReportLongQueueWaitTest.php`.
-- vhit: `app/Listeners/ReportLongQueueWait.php` (event discovery found it: nothing to unregister).
-  `tests/Feature/HorizonLongWaitAlertTest.php` keeps
-  `test_the_analysis_queue_has_its_own_wait_threshold` (its `horizon.waits` entry stays vhit's) and
-  drops the other three; the comment in `config/horizon.php` that names `ReportLongQueueWait` names
-  laravel-logging instead.
-
-**Outage budgets.** Put `...Budget::outages()` first in `classes`, drop the entries it holds and their
-comments and imports, and keep only the app's own after it:
-
-- cuty: keeps `CaptchaUnavailable`. Its budgets are unchanged.
-- exe: keeps `CaptchaUnavailable`. It gains `Psr\Http\Client\NetworkExceptionInterface` at 5 per 600s
-  (a Guzzle failure outside `Http::`), which had the default budget.
-- upfiles: keeps `AwsException` and `CaptchaUnavailable`, and drops
-  `GuzzleHttp\Exception\NetworkException`: the PSR interface covers it on Guzzle 8 and
-  `ConnectException` on Guzzle 7, at the same 5 per 600s.
-- vhit: `'classes' => Budget::outages()`. It gains `TransportExceptionInterface` (3 per 900s),
-  `FilesystemException` and `NetworkExceptionInterface` (5 per 600s each), which had the default budget.
-- centratag: no change; its `RedisException => Budget::perMinute(1)` stays its own.
+**Outage budgets.** Put `...Budget::outages()` first in `classes` and your own entries after it.
+Drop each of yours that sets the same budget for one of its classes or a subtype; keep one only to
+override it. A class it holds that had no entry of its own now gets its budget instead of `limit` and
+`window` or a broader entry's, such as a catch-all's: the most specific entry wins.
 
 ### From laravel-flood-control 3
 
 The package is renamed. Each step is what an app changes:
 
 - Composer: replace `"ismailnakkar/laravel-flood-control": "^3.0"` with
-  `"ismailnakkar/laravel-logging": "^4.0"`, and point its `repositories` entry at the renamed repository.
+  `"ismailnakkar/laravel-logging": "^4.0"`. Packagist lists it under the new name only, and the old
+  name no longer resolves.
 - Namespace: `FloodControl\` becomes `Logging\` (`Report`, `Budget`, `LogThrottle`, `OperationalError`).
 - Config: rename `config/flood-control.php` to `config/reporting.php`, and its `enabled` key to
   `throttle`. Env: `FLOOD_CONTROL_ENABLED` becomes `REPORTING_THROTTLE`, and `FLOOD_CONTROL_PULSE`,
@@ -454,21 +467,15 @@ The package is renamed. Each step is what an app changes:
   delete the scrubber, and move its names into `redact` and its path patterns into `redact_paths`. A
   callback that does more than scrub can stay: it runs first.
 - App code that calls the scrubber's own helper calls `Logging\Redaction\Redactor::fromConfig()->text()`
-  instead, before the scrubber goes: vhit's `CredentialRedactor::redact($e->getMessage())` in
-  `app/Services/IpIntel/CircuitBreaker.php` becomes `Redactor::fromConfig()->text($e->getMessage())`,
-  and `tests/Unit/CredentialRedactorTest.php` goes with the scrubber. `text()` hides listed parameters
-  (`apiKey`, `api_key`, `token`) and the segment after each `redact_paths` prefix, not every long path
-  segment as `redact()` did: a provider that puts its key in the path needs that prefix in
-  `redact_paths` (IPGeolocation sends `apiKey` in the query, Spur a `Token` header).
+  instead, before the scrubber goes, and the helper's tests go with the scrubber. `text()` hides
+  [listed](#redaction) parameters and the segment after each `redact_paths` prefix: a provider that
+  puts its key in the path needs that prefix in `redact_paths`.
 - Request context: replace your own `AddRequestContext` tap with `Logging\AddRequestContext` and
   delete it. It no longer raises the file formatter's normalised item count (Monolog's 1,000 applies),
   and in a stack it now adds `extra.request` to the other channels' lines too.
 - Log channels: add `Logging\RedactLogs::class` to the taps of each channel that leaves the server
   (Slack), never to `daily` or `single` (a file on your own server stays complete for diagnosis) nor
   to the `sentry` channel. An untapped channel is written as before.
-- Redaction lists: vhit sets `'redact' => array_diff(Redactor::DEFAULT_KEYS, ['ip'])`, as IPs are its
-  core data. centratag, new to the package, adopts it with the defaults plus its visitor ids:
-  `[...Redactor::DEFAULT_KEYS, 'visitor', 'vhit_visitor']`.
 
 ## Licence
 

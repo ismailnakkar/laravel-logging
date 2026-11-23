@@ -7,6 +7,7 @@ namespace Logging\Tests;
 use Logging\Tests\Fixtures\AppSentryCallbacks;
 use Logging\Tests\Fixtures\RecordingTransport;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\TestWith;
 use RuntimeException;
 use Sentry\Breadcrumb;
 use Sentry\ClientBuilder;
@@ -14,8 +15,12 @@ use Sentry\Event;
 use Sentry\EventType;
 use Sentry\ExceptionDataBag;
 use Sentry\Laravel\ServiceProvider as SentryServiceProvider;
+use Sentry\Options;
 use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
+use Sentry\Tracing\Transaction;
+
+use function Sentry\continueTrace;
 
 /** Auto-discovery registers this package's provider before Sentry's: names sort it first. */
 class SentryDriverTest extends TestCase
@@ -40,11 +45,19 @@ class SentryDriverTest extends TestCase
         $app['config']->set('reporting.redact_paths', ['reset-password']);
     }
 
-    /** Through the client the container built, as Sentry runs it before a send. */
-    private function send(Event $event): ?Event
+    /** The options of the client the container built. */
+    private function clientOptions(): Options
     {
         $options = $this->app->make(HubInterface::class)->getClient()?->getOptions();
         $this->assertNotNull($options);
+
+        return $options;
+    }
+
+    /** Through the client the container built, as Sentry runs it before a send. */
+    private function send(Event $event): ?Event
+    {
+        $options = $this->clientOptions();
 
         $callback = $event->getType() === EventType::transaction()
             ? $options->getBeforeSendTransactionCallback()
@@ -64,6 +77,50 @@ class SentryDriverTest extends TestCase
     private static function event(): Event
     {
         return Event::createEvent();
+    }
+
+    /** As the tracing middleware starts one for a request whose client sent a sentry-trace header marked sampled. */
+    private function headerSampledTransaction(): Transaction
+    {
+        return $this->app->make(HubInterface::class)->startTransaction(
+            continueTrace('566e3688a61d4bc888951642d6f14a19-566e3688a61d4bc8-1', ''),
+        );
+    }
+
+    #[Test]
+    public function the_client_gets_the_safe_defaults_where_the_app_sets_none(): void
+    {
+        $options = $this->clientOptions();
+
+        $this->assertSame('never', $options->getMaxRequestBodySize());
+        $this->assertSame(2.0, $options->getHttpTimeout());
+        $this->assertSame(1.0, $options->getHttpConnectTimeout());
+
+        // In config too, so an app's own config('sentry.…') checks read them once its keys are gone.
+        $this->assertSame('never', config('sentry.max_request_body_size'));
+        $this->assertSame(2, config('sentry.http_timeout'));
+        $this->assertSame(1, config('sentry.http_connect_timeout'));
+    }
+
+    #[Test]
+    #[TestWith([0.0])]
+    #[TestWith([-1.0])]
+    public function a_traces_sample_rate_of_zero_or_below_is_off_and_a_sampled_header_cannot_force_a_transaction(float $rate): void
+    {
+        $this->rebuildClient(['traces_sample_rate' => $rate]);
+
+        $this->assertNull($this->clientOptions()->getTracesSampleRate());
+        $this->assertFalse($this->headerSampledTransaction()->getSampled());
+    }
+
+    #[Test]
+    public function a_traces_sample_rate_above_zero_is_kept(): void
+    {
+        $this->rebuildClient(['traces_sample_rate' => 0.25]);
+
+        $this->assertSame(0.25, $this->clientOptions()->getTracesSampleRate());
+        // With tracing on, the client's sampled header decides: what a rate of 0 would let through.
+        $this->assertTrue($this->headerSampledTransaction()->getSampled());
     }
 
     #[Test]

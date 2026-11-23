@@ -40,6 +40,7 @@ class WithoutSentryTest extends TestCase
     public function the_sentry_driver_wires_nothing_and_log_lines_are_still_redacted(): void
     {
         $this->assertFalse($this->app->bound(ClientBuilder::class));
+        $this->assertNull(config('sentry'));
 
         Log::channel('sink')->error('failed', ['token' => 'abc']);
 
