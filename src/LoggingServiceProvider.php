@@ -13,7 +13,6 @@ use InvalidArgumentException;
 use Laravel\Horizon\Events\LongWaitDetected;
 use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
-use Logging\Redaction\Driver;
 use Logging\Redaction\Redactor;
 use Logging\Redaction\SentryDriver;
 use ReflectionObject;
@@ -28,19 +27,10 @@ final class LoggingServiceProvider extends ServiceProvider
 
     private const BUDGET_KEYS = ['limit', 'window'];
 
-    /**
-     * One per error tracker; each wires itself only when its tracker is installed.
-     *
-     * @var list<class-string<Driver>>
-     */
-    private const DRIVERS = [SentryDriver::class];
-
     /** The redaction lists: each takes non-empty strings only. */
     private const REDACTION_KEYS = ['redact', 'redact_paths'];
 
     private bool $wrapsPulse = false;
-
-    private bool $countersRunning = false;
 
     /** @var WeakMap<object, true> */
     private WeakMap $wired;
@@ -54,7 +44,6 @@ final class LoggingServiceProvider extends ServiceProvider
         $this->app->singleton(ThrottleConfig::class);
 
         // Must land before Pulse boots and resolves its recorders, or Pulse keeps its stock one.
-        // No config check: `reporting.pulse` is read per exception.
         $this->wrapsPulse = class_exists(PulseExceptions::class) && ! $this->app->isBooted();
 
         if ($this->wrapsPulse) {
@@ -65,9 +54,7 @@ final class LoggingServiceProvider extends ServiceProvider
         }
 
         // No config check: the rules are read per event.
-        foreach (self::DRIVERS as $driver) {
-            (new $driver)->register($this->app);
-        }
+        (new SentryDriver)->register($this->app);
     }
 
     public function boot(Dispatcher $events): void
@@ -83,7 +70,6 @@ final class LoggingServiceProvider extends ServiceProvider
         // Skipped once cached: config:cache boots the app uncached, so the checks already ran there.
         if (! $this->app->configurationIsCached()) {
             $this->validateClassBudgets();
-            $this->validateCounters();
             $this->validateRedaction();
             $this->validateLongWait();
         }
@@ -120,47 +106,12 @@ final class LoggingServiceProvider extends ServiceProvider
         }
 
         // Counted on dontReportWhen(), ahead of the throttle chain: Handler::throttle() stops at the
-        // first non-null return, so an app's own throttle callback would starve counters there.
-        // These return null, which suppresses nothing.
+        // first non-null return, so an app's own throttle callback would starve Pulse there.
         if ($this->wrapsPulse) {
             $handler->dontReportWhen(PulseExceptionRecorder::count(...));
-            $handler->reportable(PulseExceptionRecorder::countSurvivor(...));
         }
-
-        // Always: the list is read per exception, so counters configured later still run.
-        $handler->dontReportWhen($this->runCounters(...));
 
         $handler->throttleUsing(ExceptionThrottle::for(...));
-    }
-
-    private function runCounters(Throwable $e): null
-    {
-        // A counter that reports re-enters here, and the gate runs too late to stop it.
-        if ($this->countersRunning) {
-            return null;
-        }
-
-        $this->countersRunning = true;
-
-        try {
-            foreach ($this->counters() as $counter) {
-                try {
-                    $this->app->make($counter)($e);
-                } catch (Throwable) {
-                    // dontReportWhen() callbacks run outside the handler's rescue(): a throw breaks report().
-                }
-            }
-        } finally {
-            $this->countersRunning = false;
-        }
-
-        return null;
-    }
-
-    /** @return list<mixed> */
-    private function counters(): array
-    {
-        return array_values((array)$this->app->make('config')->get('reporting.counters', []));
     }
 
     /**
@@ -206,7 +157,7 @@ final class LoggingServiceProvider extends ServiceProvider
     private function countPulseFromAReportable(object $handler): void
     {
         if ($this->wrapsPulse && method_exists($handler, 'reportable')) {
-            $handler->reportable(PulseExceptionRecorder::countAlways(...));
+            $handler->reportable(PulseExceptionRecorder::count(...));
         }
     }
 
@@ -245,23 +196,6 @@ final class LoggingServiceProvider extends ServiceProvider
                 throw new InvalidArgumentException(
                     "reporting.classes.[{$class}]: unknown key(s) " . implode(', ', $unknown) . '.',
                 );
-            }
-        }
-    }
-
-    /** A typo'd counter would otherwise silently never run. */
-    private function validateCounters(): void
-    {
-        foreach ($this->counters() as $counter) {
-            // Interfaces too: a counter can be a contract the app binds.
-            if (! self::isClassOrInterface($counter)) {
-                $name = is_string($counter) ? $counter : get_debug_type($counter);
-
-                throw new InvalidArgumentException("reporting.counters: [{$name}] is not a class or interface that exists.");
-            }
-
-            if (! method_exists($counter, '__invoke')) {
-                throw new InvalidArgumentException("reporting.counters: [{$counter}] has no __invoke(Throwable \$e).");
             }
         }
     }
@@ -321,7 +255,7 @@ final class LoggingServiceProvider extends ServiceProvider
                 ),
                 'Redacted keys' => (string)count((array)$this->app->make('config')->get('reporting.redact', Redactor::DEFAULT_KEYS)),
                 'Pulse counter' => AboutCommand::format(
-                    $this->wrapsPulse && PulseExceptionRecorder::countsInFront(),
+                    $this->wrapsPulse,
                     console: fn (bool $on): string => $on ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF',
                 ),
             ];

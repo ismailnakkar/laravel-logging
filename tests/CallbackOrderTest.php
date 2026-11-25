@@ -6,7 +6,6 @@ namespace Logging\Tests;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
-use Logging\Tests\Fixtures\RecordingCounter;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
@@ -19,17 +18,12 @@ class CallbackOrderTest extends TestCase
 
     private ?Limit $appLimit = null;
 
-    private RecordingCounter $counter;
-
     protected function defineEnvironment($app): void
     {
         self::$counted = [];
 
         $app['config']->set('reporting.limit', 1);
         $app['config']->set('reporting.window', 300);
-        $app['config']->set('reporting.counters', [RecordingCounter::class]);
-
-        $app->instance(RecordingCounter::class, $this->counter = new RecordingCounter);
 
         $limit = $this->appLimit;
 
@@ -57,22 +51,7 @@ class CallbackOrderTest extends TestCase
     }
 
     #[Test]
-    public function an_app_that_overrides_the_gate_does_not_starve_the_counters(): void
-    {
-        $this->appLimit = Limit::perMinute(3);
-        $this->refreshApplication();
-        $this->captureReports();
-
-        foreach (range(1, 5) as $i) {
-            report(new RuntimeException("boom {$i}"));
-        }
-
-        $this->assertCount(5, $this->counter->seen, 'the configured counters must still see everything');
-        $this->assertCount(3, $this->reported, "and the app's own limit must still win");
-    }
-
-    #[Test]
-    public function pulse_is_not_starved_either(): void
+    public function an_app_that_overrides_the_gate_does_not_starve_pulse(): void
     {
         $this->skipWithoutPulse();
 
@@ -86,7 +65,7 @@ class CallbackOrderTest extends TestCase
             }
         });
 
-        $this->assertCount(5, $counted);
-        $this->assertCount(3, $this->reported);
+        $this->assertCount(5, $counted, 'Pulse must still see everything');
+        $this->assertCount(3, $this->reported, "and the app's own limit must still win");
     }
 }

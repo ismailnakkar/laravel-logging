@@ -13,42 +13,25 @@ use Throwable;
  *
  * Bound in place of Pulse's exceptions recorder, which counts from a reportable behind the gate, so
  * the card counts in front of it instead. Recording is delegated, so Pulse's settings still apply.
- * With no register(), Pulse wires none of its hooks: the provider wires the ones below.
+ * With no register(), Pulse wires none of its hooks: the provider wires count() in their place.
  */
 final class PulseExceptionRecorder
 {
     public function __construct(private PulseExceptions $recorder) {}
 
+    /**
+     * In front of the gate as a dontReportWhen() callback, whose null suppresses nothing, and where the
+     * gate decides nothing: a handler with no throttleUsing(), and Pulse::report().
+     */
     public static function count(Throwable $e): null
-    {
-        if (self::countsInFront()) {
-            self::countAlways($e);
-        }
-
-        return null;
-    }
-
-    /** A reportable: counts behind the gate, as Pulse does, while `reporting.pulse` is off. */
-    public static function countSurvivor(Throwable $e): void
-    {
-        if (! self::countsInFront()) {
-            self::countAlways($e);
-        }
-    }
-
-    /** Where the gate decides nothing: a handler with no throttleUsing(), and Pulse::report(). */
-    public static function countAlways(Throwable $e): void
     {
         try {
             self::registered()?->record($e);
         } catch (Throwable) {
             // Runs outside the handler's rescue(): a throw would break report().
         }
-    }
 
-    public static function countsInFront(): bool
-    {
-        return (bool)config('reporting.pulse', true);
+        return null;
     }
 
     public function record(Throwable $e): void

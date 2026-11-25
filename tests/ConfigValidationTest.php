@@ -19,8 +19,6 @@ class ConfigValidationTest extends TestCase
 {
     private mixed $classes = [];
 
-    private mixed $counters = [];
-
     private mixed $redact = Redactor::DEFAULT_KEYS;
 
     private mixed $redactPaths = Redactor::DEFAULT_PATHS;
@@ -122,28 +120,6 @@ class ConfigValidationTest extends TestCase
         );
     }
 
-    /** @return array<string, array{mixed, string}> */
-    public static function badCounters(): array
-    {
-        return [
-            'class that does not exist' => [['App\\Nope'], 'not a class or interface that exists'],
-            'not a string'              => [[123], 'not a class or interface that exists'],
-            'nothing to invoke'         => [[ThrottleConfig::class], 'has no __invoke'],
-        ];
-    }
-
-    #[Test]
-    #[DataProvider('badCounters')]
-    public function it_refuses_a_malformed_counter(mixed $counters, string $expected): void
-    {
-        $this->counters = $counters;
-
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/' . preg_quote($expected, '/') . '/');
-
-        $this->refreshApplication();
-    }
-
     /** @return array<string, array{mixed, mixed, string}> */
     public static function badRedaction(): array
     {
@@ -218,7 +194,6 @@ class ConfigValidationTest extends TestCase
     protected function defineEnvironment($app): void
     {
         $app['config']->set('reporting.classes', $this->classes);
-        $app['config']->set('reporting.counters', $this->counters);
         $app['config']->set('reporting.redact', $this->redact);
         $app['config']->set('reporting.redact_paths', $this->redactPaths);
         $app['config']->set('reporting.long_wait', $this->longWait);

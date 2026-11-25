@@ -6,21 +6,15 @@ namespace Logging\Tests;
 
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Logging\Tests\Fixtures\DecoratingHandler;
-use Logging\Tests\Fixtures\RecordingCounter;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
 class DecoratedHandlerTest extends TestCase
 {
-    private RecordingCounter $counter;
-
     protected function defineEnvironment($app): void
     {
         $app['config']->set('reporting.limit', 1);
         $app['config']->set('reporting.window', 300);
-        $app['config']->set('reporting.counters', [RecordingCounter::class]);
-
-        $app->instance(RecordingCounter::class, $this->counter = new RecordingCounter);
 
         // As CollisionServiceProvider::register() does.
         $real = $app->make(ExceptionHandler::class);
@@ -42,12 +36,14 @@ class DecoratedHandlerTest extends TestCase
     #[Test]
     public function a_handler_reached_twice_is_wired_once(): void
     {
-        $this->captureReports();
+        $this->skipWithoutPulse();
 
-        foreach (range(1, 3) as $i) {
-            report(new RuntimeException("boom {$i}"));
-        }
+        $counted = $this->pulseExceptions(function (): void {
+            foreach (range(1, 3) as $i) {
+                report(new RuntimeException("boom {$i}"));
+            }
+        });
 
-        $this->assertSame(['boom 1', 'boom 2', 'boom 3'], $this->counter->seen);
+        $this->assertCount(3, $counted);
     }
 }

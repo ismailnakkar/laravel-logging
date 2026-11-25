@@ -3,8 +3,7 @@
 What a Laravel app reports and logs, kept in check:
 
 - **Throttling**: reported exceptions and repeated log lines are rate-limited, so one failing
-  dependency cannot flood Sentry, Slack or your logs. Laravel Pulse and your own counters still see
-  every exception.
+  dependency cannot flood Sentry, Slack or your logs. Laravel Pulse still sees every exception.
 - **Request context**: a tap that adds the HTTP request to each log line.
 - **Redaction**: one list of secrets, applied by drivers to what leaves the server: the log channels
   you tap (Slack) and Sentry (automatically, when installed).
@@ -32,9 +31,7 @@ and server shares, such as Redis or the database, or each process or server thro
 
 | Key | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `throttle` | `REPORTING_THROTTLE` | `true` | Exception throttling, per-call limits and the [channel tap](#per-channel) included. Counting and `LogThrottle::once()`/`times()` ignore it. |
-| `pulse` | `REPORTING_PULSE` | `true` | Pulse counts in front of the gate; `false` counts survivors only. |
-| `counters` | | `[]` | Your own counters, see [Counting](#counting). |
+| `throttle` | `REPORTING_THROTTLE` | `true` | Exception throttling, per-call limits and the [channel tap](#per-channel) included. [Pulse](#pulse) and `LogThrottle::once()` ignore it. |
 | `limit` | `REPORTING_LIMIT` | `10` | Reports per exception class per window. |
 | `window` | `REPORTING_WINDOW` | `300` | Window in seconds. |
 | `classes` | | `[]` | Per-class budgets, below. |
@@ -139,19 +136,17 @@ Report::error('Payment circuit breaker opened', budget: Budget::perDay(2));
 ## Log lines
 
 ```php
-use Logging\Budget;
 use Logging\LogThrottle;
 
 LogThrottle::once('origin-denied', 60)->warning('Origin not allowed', ['origin' => $origin]);
 LogThrottle::once('feed-stale', 900, ['single', 'slack'])->warning('Feed is stale');
-LogThrottle::times('shadow-source-failed', Budget::of(3, 300))->warning('Shadow source failed');
 ```
 
 - `once()` returns the real logger **exactly once** per window, even across workers (one
-  `Cache::add()`). `times()` allows **about** N: workers racing its counter can let an extra one
-  through. Prefer `once()` unless you want several samples.
-- Past the budget they return a logger that discards: every level, `withContext()` and array messages
-  work, and no `MessageLogged` fires (nothing reaches Telescope or Sentry breadcrumbs).
+  `Cache::add()`). For several lines per window, log to a [tapped channel](#per-channel).
+- After that line, until the window ends, it returns a logger that discards: every level,
+  `withContext()` and array messages work, and no `MessageLogged` fires (nothing reaches Telescope or
+  Sentry breadcrumbs).
 - The last argument picks the logger: a channel name or enum, an array of channels (an on-demand
   stack), a `LoggerInterface`, or `null` for the default channel.
 - A `null` window never throttles, a cache failure lets the line through, and no `reporting` config
@@ -297,46 +292,22 @@ there is off too, and `config('sentry.traces_sample_rate')` still reads `0.0`.
 
 ### Another tracker
 
-A tracker is a driver: a `Logging\Redaction\Driver` whose `register(Application $app)` hooks the
-tracker's client (returning early when it is not installed) and maps its payload onto
-`Redactor::fromConfig()->values()` and `->text()`. The package's own are listed in its provider; one of
-your own you call from a service provider's `register()`:
-
-```php
-(new \App\Reporting\BugsnagRedaction)->register($this->app);
-```
+Hook the tracker's client from a service provider's `register()`, before the client is resolved, and
+map its payload onto the same rules: `Redactor::fromConfig()->values($array)` for keyed values and
+`->text($string)` for free text. Build the redactor per event: it reads the lists when built.
 
 App code can use the same rules: `Redactor::fromConfig()->text($e->getMessage())`, though a tapped
 channel already redacts what it writes.
 
-## Counting
+## Pulse
 
-A `reportable` that counts sees only survivors. Count in front of the gate instead:
+Pulse's exceptions recorder counts from a `reportable`, which sees only survivors. With `laravel/pulse`
+installed, the package binds it to one that counts every reported exception in front of the gate and
+delegates recording, so the card shows the real rate and Pulse's settings, off switches and
+`Pulse::report()` work as before. `php artisan about` shows it.
 
-- **Pulse**, when installed: the package binds Pulse's exceptions recorder to one that counts in front
-  of the gate and delegates recording, so Pulse's settings, off switches and `Pulse::report()` work
-  as before. `php artisan about` shows which way it counts.
-- **Your counters**: invokable classes in `counters`, resolved from the container and called with
-  every reported exception, throttled or not.
-
-```php
-'counters' => [\App\Reporting\CountExceptions::class],
-```
-
-```php
-class CountExceptions
-{
-    public function __invoke(Throwable $e): void
-    {
-        Metrics::increment('exceptions', $e::class);
-    }
-}
-```
-
-A counter's throws are swallowed, a report made inside a counter is not counted again, and an unknown
-or non-invokable class throws at boot. Counting runs on `dontReportWhen()`, ahead of the throttle
-chain, so an `$exceptions->throttle()` of your own that returns a `Limit` replaces the gate without
-hiding anything from counters.
+Counting runs on `dontReportWhen()`, ahead of the throttle chain, so an `$exceptions->throttle()` of
+your own that returns a `Limit` replaces the gate without hiding anything from Pulse.
 
 ## Sinks
 
@@ -369,7 +340,6 @@ Report::exception(Throwable $e, array $context = [], ?Limit $limit = null): void
 Report::error(string $message, array $context = [], ?Throwable $previous = null, ?Budget $budget = null): void
 
 LogThrottle::once(string $key, ?int $seconds, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
-LogThrottle::times(string $key, Budget $budget, LoggerInterface|UnitEnum|array|string|null $channel = null): LoggerInterface
 LogThrottle::class               // a channel tap; LogThrottle::class . ':3,600' sets its own budget
 
 Budget::of(int $times, int $seconds)
@@ -386,8 +356,6 @@ RedactLogs::class                // a channel tap: the log-channel driver
 Redaction\Redactor::fromConfig(): Redactor
 Redaction\Redactor::DEFAULT_KEYS   Redaction\Redactor::DEFAULT_PATHS   Redaction\Redactor::MARKER
 $redactor->values(array $values): array   $redactor->text(string $text): string   $redactor->isSecret(int|string $name): bool
-Redaction\Driver                // register(Application $app): void
-Redaction\SentryDriver
 ```
 
 ## Testing
@@ -409,6 +377,25 @@ Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 `AddRequestContext` on a real channel.
 
 ## Upgrading
+
+### From 4.2
+
+5.0 removes two config keys, a method and an interface. An app that uses none of them only requires
+`"ismailnakkar/laravel-logging": "^5.0"`; each item is what an app that does changes:
+
+- `reporting.pulse` and `REPORTING_PULSE` are gone: with Pulse installed, every reported exception is
+  counted in front of the gate, as the default was. Delete the key from a published
+  `config/reporting.php` and the variable from your `.env` files. An app that set it to `false` now
+  counts every exception too.
+- `reporting.counters` is gone, with its boot check. Delete the key. A counter of yours becomes an
+  `$exceptions->dontReportWhen()` callback in `bootstrap/app.php` that returns `false`: it runs ahead
+  of the gate too, but a throw there breaks `report()` and a report made there re-enters it, both of
+  which the package guarded against.
+- `LogThrottle::times()` is gone. Call `LogThrottle::once()` for one line per window, or log to a
+  channel [tapped](#per-channel) with `LogThrottle::class . ':3,600'` for several.
+- `Logging\Redaction\Driver` is gone, and `SentryDriver` is internal: Sentry redaction is unchanged. A
+  class of yours that implemented `Driver` drops `implements Driver` and keeps the `register()` call
+  in your service provider.
 
 ### From 4.1
 

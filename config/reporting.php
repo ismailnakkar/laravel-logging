@@ -8,24 +8,9 @@ return [
 
     /*
      * Exception throttling on or off, per-call Report::exception() limits and the LogThrottle channel
-     * tap included. Counting and LogThrottle::once()/times() are unaffected.
+     * tap included. Pulse's count and LogThrottle::once() are unaffected.
      */
     'throttle' => env('REPORTING_THROTTLE', true),
-
-    /*
-     * With laravel/pulse installed, count every reported exception in front of the gate, so the
-     * exceptions card shows the real rate. Off, Pulse counts survivors only. Read per exception.
-     */
-    'pulse' => env('REPORTING_PULSE', true),
-
-    /*
-     * Invokable classes called with every reported exception, throttled or not. Resolved from the
-     * container per exception; throws are swallowed, and a report made from a counter is not
-     * counted again.
-     *
-     *   \App\Reporting\CountExceptions::class,
-     */
-    'counters' => [],
 
     /*
      * The default budget: this many reports per exception class per window, in seconds.

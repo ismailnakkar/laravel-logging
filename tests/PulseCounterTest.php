@@ -115,34 +115,6 @@ class PulseCounterTest extends TestCase
     }
 
     #[Test]
-    public function the_switch_is_read_per_exception(): void
-    {
-        // Set after boot, so the wiring cannot have seen it.
-        config(['reporting.pulse' => false, 'reporting.limit' => 1, 'reporting.window' => 300]);
-        $this->captureReports();
-
-        $counted = $this->pulseExceptions(function (): void {
-            foreach (range(1, 4) as $i) {
-                report(new RuntimeException("boom {$i}"));
-            }
-        });
-
-        $this->assertCount(1, $this->reported);
-        $this->assertCount(1, $counted, 'switched off, only the survivor is counted, as Pulse alone would');
-    }
-
-    #[Test]
-    public function about_reads_the_switch_when_it_runs(): void
-    {
-        config(['reporting.pulse' => false]);
-
-        $output = $this->aboutOutput();
-
-        $this->assertStringContainsString('Pulse counter', $output);
-        $this->assertStringNotContainsString('counts in front of the gate', $output);
-    }
-
-    #[Test]
     public function pulse_report_is_counted_by_a_class_listener(): void
     {
         // A closure listener shows in event:list only as "Closure at: file:line".

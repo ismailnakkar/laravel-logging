@@ -16,6 +16,6 @@ final class PulseReportListener
 {
     public function __invoke(ExceptionReported $event): void
     {
-        PulseExceptionRecorder::countAlways($event->exception);
+        PulseExceptionRecorder::count($event->exception);
     }
 }

@@ -7,7 +7,6 @@ namespace Logging\Tests;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
-use Logging\Budget;
 use Logging\LogThrottle;
 use Logging\Tests\Fixtures\Channel;
 use Monolog\Handler\NullHandler;
@@ -58,59 +57,14 @@ class LogThrottleTest extends TestCase
     }
 
     #[Test]
-    public function times_writes_the_budget_and_then_stops(): void
-    {
-        foreach (range(1, 5) as $i) {
-            LogThrottle::times('burst', Budget::of(3, 300))->warning("line {$i}");
-        }
-
-        $this->assertSame(['warning|line 1', 'warning|line 2', 'warning|line 3'], $this->written);
-    }
-
-    #[Test]
-    public function times_keeps_separate_keys_apart(): void
-    {
-        LogThrottle::times('one', Budget::of(1, 300))->warning('from one');
-        LogThrottle::times('one', Budget::of(1, 300))->warning('from one again');
-        LogThrottle::times('two', Budget::of(1, 300))->warning('from two');
-
-        $this->assertSame(['warning|from one', 'warning|from two'], $this->written);
-    }
-
-    #[Test]
-    public function an_unlimited_budget_never_throttles(): void
-    {
-        foreach (range(1, 3) as $i) {
-            LogThrottle::times('no-gate', Budget::unlimited())->warning("line {$i}");
-        }
-
-        $this->assertCount(3, $this->written);
-    }
-
-    #[Test]
     public function the_gate_lives_in_the_cache_not_in_an_instance(): void
     {
         // A per-process gate would pass the other tests and still log once per worker.
         LogThrottle::once('shared', 60);
-        LogThrottle::times('shared', Budget::of(3, 60));
 
         $store = $this->app->make(CacheManager::class)->store(config('cache.limiter'));
 
         $this->assertTrue($store->has('reporting:once:0b4daf8ec10943ca139c28d628e8f62c'));
-        $this->assertSame(1, $store->get('reporting:times:0b4daf8ec10943ca139c28d628e8f62c'));
-    }
-
-    #[Test]
-    public function once_and_times_on_the_same_key_keep_their_own_gates(): void
-    {
-        // Sharing a cache key, each read the other's entry as its own: times()' counter closed once()'s gate.
-        LogThrottle::times('both', Budget::of(2, 60))->info('times 1');
-        LogThrottle::once('both', 60)->info('once 1');
-        LogThrottle::times('both', Budget::of(2, 60))->info('times 2');
-        LogThrottle::once('both', 60)->info('once 2');
-        LogThrottle::times('both', Budget::of(2, 60))->info('times 3');
-
-        $this->assertSame(['info|times 1', 'info|once 1', 'info|times 2'], $this->written);
     }
 
     #[Test]
@@ -162,17 +116,6 @@ class LogThrottleTest extends TestCase
 
         LogThrottle::once('outage', 60)->error('one');
         LogThrottle::once('outage', 60)->error('two');
-
-        $this->assertSame(['error|one', 'error|two'], $this->written);
-    }
-
-    #[Test]
-    public function a_cache_failure_logs_rather_than_throwing_for_times_too(): void
-    {
-        $this->breakRateLimiter();
-
-        LogThrottle::times('outage', Budget::of(1, 60))->error('one');
-        LogThrottle::times('outage', Budget::of(1, 60))->error('two');
 
         $this->assertSame(['error|one', 'error|two'], $this->written);
     }

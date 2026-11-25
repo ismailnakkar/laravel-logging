@@ -6,8 +6,8 @@ namespace Logging\Redaction;
 
 /**
  * The redaction rules in `reporting.redact` and `reporting.redact_paths`, applied to the shapes a sink
- * carries: keyed values and free text, URLs and query strings included. Drivers map a sink's payload
- * onto these two calls.
+ * carries: keyed values and free text, URLs and query strings included. RedactLogs and SentryDriver map
+ * a sink's payload onto these two calls.
  */
 final readonly class Redactor
 {

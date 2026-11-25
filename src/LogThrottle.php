@@ -7,7 +7,6 @@ namespace Logging;
 use BackedEnum;
 use Closure;
 use Illuminate\Cache\NullStore;
-use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -23,10 +22,7 @@ use UnitEnum;
  */
 final class LogThrottle
 {
-    /** Separate per method: RateLimiter would read once()'s gate as a spent counter and clear it. */
     private const ONCE_PREFIX = 'reporting:once:';
-
-    private const TIMES_PREFIX = 'reporting:times:';
 
     /**
      * The real logger once per $seconds for $key, a discarding one after; a null or sub-1 window
@@ -46,27 +42,8 @@ final class LogThrottle
 
             // Repository::add() is always false on a NullStore, which would discard every line.
             return $cache->getStore() instanceof NullStore
-                || $cache->add(self::cacheKey(self::ONCE_PREFIX, $key), true, $budget->seconds);
+                || $cache->add(self::cacheKey($key), true, $budget->seconds);
         });
-    }
-
-    /**
-     * The real logger for the first $budget->times calls per window, a discarding one after. About
-     * N: workers racing the counter can let an extra one through.
-     *
-     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel  An array is an on-demand stack.
-     */
-    public static function times(
-        string $key,
-        Budget $budget,
-        LoggerInterface|UnitEnum|array|string|null $channel = null,
-    ): LoggerInterface {
-        return self::gate($channel, $budget, static fn (): bool => app(RateLimiter::class)->attempt(
-            self::cacheKey(self::TIMES_PREFIX, $key),
-            $budget->times,
-            static fn (): bool => true,
-            $budget->seconds,
-        ));
     }
 
     /**
@@ -141,9 +118,9 @@ final class LogThrottle
         return new Logger(new Monolog('reporting'));
     }
 
-    private static function cacheKey(string $prefix, string $key): string
+    private static function cacheKey(string $key): string
     {
         // Hashed: memcached rejects long keys, and a rejected add() reads as already logged.
-        return $prefix . hash('xxh128', $key);
+        return self::ONCE_PREFIX . hash('xxh128', $key);
     }
 }

@@ -80,7 +80,7 @@ final class ThrottledHandler extends HandlerWrapper
                 $budget->seconds,
             );
         } catch (Throwable) {
-            // Fail open, as LogThrottle::times() does.
+            // Fail open, as LogThrottle::once() does.
             return true;
         }
     }

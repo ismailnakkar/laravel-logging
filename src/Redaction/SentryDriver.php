@@ -13,13 +13,15 @@ use Sentry\EventHint;
 use Sentry\Laravel\ServiceProvider as SentryServiceProvider;
 
 /**
+ * @internal
+ *
  * Redacts every event and transaction Sentry sends. It wraps the client's `before_send` and
  * `before_send_transaction` rather than taking their place in config/sentry.php, so an app's own
  * callbacks still run, first, and whatever they return is redacted last. It also sets three options
  * sentry-laravel's own config leaves at the SDK's defaults, under the app's, and turns a
  * traces_sample_rate of 0 or below off.
  */
-final class SentryDriver implements Driver
+final class SentryDriver
 {
     /** The SDK attaches request bodies (passwords, tokens, 2FA codes) whatever send_default_pii says. */
     private const MAX_REQUEST_BODY_SIZE = 'never';
@@ -40,6 +42,7 @@ final class SentryDriver implements Driver
         'http_connect_timeout'  => self::HTTP_CONNECT_TIMEOUT,
     ];
 
+    /** From the provider's register(), on every boot: it must land before Sentry resolves its client. */
     public function register(Application $app): void
     {
         if (! class_exists(SentryServiceProvider::class)) {
